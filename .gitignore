@@ -1,0 +1,11 @@
+# secrets
+*.age
+*.gpg
+*.key
+
+# direnv
+.envrc
+.direnv/
+
+# rust
+/target
