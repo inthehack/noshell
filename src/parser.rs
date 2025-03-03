@@ -72,7 +72,7 @@ impl<'a> ParsedArgs<'a> {
         Ok(None)
     }
 
-    pub fn enabled<'k>(&self, key: &'k str) -> bool
+    pub fn is_enabled<'k>(&self, key: &'k str) -> bool
     where
         'a: 'k,
     {
@@ -130,7 +130,7 @@ mod tests {
     fn it_should_parse_enabled_bool_arg() {
         let lexer = Lexer::new(&["-v"]);
         let args = ParsedArgs::parse(lexer);
-        assert_that!(args.enabled("v"), eq(true));
+        assert_that!(args.is_enabled("v"), eq(true));
         assert_that!(args.get::<bool>("v"), eq(&Err(Error::MissingArgument)));
     }
 
@@ -138,7 +138,7 @@ mod tests {
     fn it_should_parse_enabled_bool_arg_with_value() {
         let lexer = Lexer::new(&["-v", "true"]);
         let args = ParsedArgs::parse(lexer);
-        assert_that!(args.enabled("v"), eq(true));
+        assert_that!(args.is_enabled("v"), eq(true));
         assert_that!(args.get::<bool>("v"), eq(&Ok(Some(true))));
     }
 }
