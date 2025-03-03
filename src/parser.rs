@@ -11,6 +11,12 @@ pub enum Error {
     #[error("undefined parsing error")]
     Undefined,
 
+    #[error("invalid argument")]
+    InvalidArgument,
+
+    #[error("missing argument")]
+    MissingArgument,
+
     #[error(transparent)]
     Lexer(#[from] lexer::Error),
 }
@@ -42,27 +48,43 @@ impl<'a> ParsedArgs<'a> {
         'a: 'k,
         T: FromStr,
     {
-        let mut pending = false;
+        let mut wait_for_value = false;
 
         for token in &self.args {
-            if match_key_with_token(key, token) {
-                pending = true;
+            if !wait_for_value && match_key_with_token(key, token) {
+                wait_for_value = true;
                 continue;
             }
 
-            if let lexer::Token::Value(value) = token {
-                // Parse error.
-                return Ok(Some(value.parse::<T>().map_err(|_| Error::Undefined)?));
+            if wait_for_value {
+                if let lexer::Token::Value(value) = token {
+                    let typed = value.parse::<T>().map_err(|_| Error::InvalidArgument)?;
+                    return Ok(Some(typed));
+                }
+
+                return Err(Error::MissingArgument);
             }
         }
 
-        // Missing value.
-        if pending {
-            return Err(Error::Undefined);
+        // Not enough tokens.
+        if wait_for_value {
+            return Err(Error::MissingArgument);
         }
 
-        // Not found.
         Ok(None)
+    }
+
+    pub fn enabled<'k>(&self, key: &'k str) -> bool
+    where
+        'a: 'k,
+    {
+        for token in &self.args {
+            if match_key_with_token(key, token) {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
@@ -86,16 +108,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_should_parse_expected_value() {
+    fn it_should_parse_valid_value() {
         let lexer = Lexer::new(&["-v", "42"]);
         let args = ParsedArgs::parse(lexer);
         assert_that!(args.get::<u32>("v"), matches_pattern!(&Ok(Some(42))));
     }
 
     #[test]
-    fn it_should_parse_unexpected_value() {
+    fn it_should_parse_invalid_arg() {
         let lexer = Lexer::new(&["-v", "-42"]);
         let args = ParsedArgs::parse(lexer);
-        assert_that!(args.get::<u32>("v"), eq(&Err(Error::Undefined)));
+        assert_that!(args.get::<u32>("v"), eq(&Err(Error::InvalidArgument)));
+    }
+
+    #[test]
+    fn it_should_parse_missing_arg() {
+        let lexer = Lexer::new(&["-v"]);
+        let args = ParsedArgs::parse(lexer);
+        assert_that!(args.get::<u32>("v"), eq(&Err(Error::MissingArgument)));
+    }
+
+    #[test]
+    fn it_should_parse_enabled_bool_arg() {
+        let lexer = Lexer::new(&["-v"]);
+        let args = ParsedArgs::parse(lexer);
+        assert_that!(args.enabled("v"), eq(true));
+        assert_that!(args.get::<bool>("v"), eq(&Err(Error::MissingArgument)));
+    }
+
+    #[test]
+    fn it_should_parse_enabled_bool_arg_with_value() {
+        let lexer = Lexer::new(&["-v", "true"]);
+        let args = ParsedArgs::parse(lexer);
+        assert_that!(args.enabled("v"), eq(true));
+        assert_that!(args.get::<bool>("v"), eq(&Ok(Some(true))));
     }
 }
