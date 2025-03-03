@@ -1,79 +1,17 @@
 #[derive(Debug, Default, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     #[default]
     #[error("undefined error")]
     Undefined,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Token<'a> {
-    Short(char),
-    Long(&'a str),
-    Value(Value<'a>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-#[non_exhaustive]
-pub enum Value<'a> {
-    Str(&'a str),
-    Int32(i32),
-    Uint32(u32),
-    Float32(f32),
-}
-
-impl<'a> Value<'a> {
-    pub fn parse<'b>(input: &'b str) -> Self
-    where
-        'b: 'a,
-    {
-        if let Ok(value) = input.parse::<i32>() {
-            return Value::Int32(value);
-        }
-
-        if let Ok(value) = input.parse::<u32>() {
-            return Value::Uint32(value);
-        }
-
-        if let Ok(value) = input.parse::<f32>() {
-            return Value::Float32(value);
-        }
-
-        Value::Str(input)
-    }
-}
-
-macro_rules! make_from_value_impl {
-    ($variant:ident, $target:ty) => {
-        impl TryFrom<Value<'_>> for $target {
-            type Error = Error;
-
-            fn try_from(value: Value<'_>) -> Result<Self, Self::Error> {
-                match value {
-                    Value::$variant(x) => Ok(x),
-                    _ => Err(Error::Undefined),
-                }
-            }
-        }
-    };
-}
-
-make_from_value_impl!(Int32, i32);
-make_from_value_impl!(Uint32, u32);
-make_from_value_impl!(Float32, f32);
-
-impl<'a, 'b> TryFrom<Value<'a>> for &'b str
-where
-    'a: 'b,
-{
-    type Error = Error;
-
-    fn try_from(value: Value<'a>) -> Result<Self, Self::Error> {
-        match value {
-            Value::Str(x) => Ok(x),
-            _ => Err(Error::Undefined),
-        }
-    }
+    ShortFlag(char),
+    LongFlag(&'a str),
+    Value(&'a str),
 }
 
 #[derive(Clone, Debug)]
@@ -98,19 +36,21 @@ impl<'a> Lexer<'a> {
         // Long flag.
         if arg.starts_with("--") && arg.len() >= 3 {
             let (_, name) = arg.split_at(2);
-            return Some(Token::Long(name));
+            return Some(Token::LongFlag(name));
         }
 
-        // Look up for signed numerical value (e.g. -3, -2.5).
-        let value = Value::parse(arg);
+        // Numbers.
+        if arg.starts_with('-') && is_number(arg) {
+            return Some(Token::Value(arg));
+        }
 
-        // Short argument.
-        if arg.starts_with('-') && arg.len() == 2 && matches!(value, Value::Str(_)) {
+        // Short flag.
+        if arg.starts_with('-') && arg.len() == 2 {
             let (_, name) = arg.split_at(1);
-            return Some(Token::Short(name.chars().nth(0).unwrap_or_default()));
+            return Some(Token::ShortFlag(name.chars().nth(0).unwrap_or_default()));
         }
 
-        Some(Token::Value(value))
+        Some(Token::Value(arg))
     }
 }
 
@@ -122,6 +62,39 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
+fn is_number(input: &str) -> bool {
+    let mut position_of_e = None;
+    let mut have_seen_dot = false;
+
+    // Remove the front sign is any.
+    let input = input.trim_start_matches('-');
+
+    for (i, c) in input.as_bytes().iter().enumerate() {
+        match c {
+            // Digits, OK.
+            b'0'..=b'9' => {}
+
+            // Exponential, OK if not the first character.
+            b'e' | b'E' if position_of_e.is_none() && i > 0 => {
+                position_of_e = Some(i);
+            }
+
+            // Dot is valid if unique, not the first character and before any exponential.
+            b'.' if !have_seen_dot && position_of_e.is_none() && i > 0 => {
+                have_seen_dot = true;
+            }
+
+            _ => return false,
+        }
+    }
+
+    if let Some(pos) = position_of_e {
+        pos != input.len() - 1
+    } else {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use googletest::prelude::*;
@@ -129,24 +102,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_should_count_tokens() {
-        let mut lexer = Lexer::new(&["-f", "--flag", "value", "-2", "-2.5", "2"]);
+    fn it_should_match_short_flag() {
+        let mut lexer = Lexer::new(&["-f"]);
 
-        assert_that!(lexer.next_token(), eq(&Some(Token::Short('f'))));
-        assert_that!(lexer.next_token(), eq(&Some(Token::Long("flag"))));
-        assert_that!(
-            lexer.next_token(),
-            eq(&Some(Token::Value(Value::Str("value"))))
-        );
-        assert_that!(
-            lexer.next_token(),
-            eq(&Some(Token::Value(Value::Int32(-2))))
-        );
-        assert_that!(
-            lexer.next_token(),
-            eq(&Some(Token::Value(Value::Float32(-2.5))))
-        );
-        assert_that!(lexer.next_token(), eq(&Some(Token::Value(Value::Int32(2)))));
-        assert_that!(lexer.next_token(), eq(&None));
+        let token = lexer.next_token();
+        assert_that!(token.is_some(), eq(true));
+        assert_that!(token.unwrap(), eq(Token::ShortFlag('f')));
+    }
+
+    #[test]
+    fn it_should_match_value_starting_with_dash() {
+        let mut lexer = Lexer::new(&["-flag"]);
+
+        let token = lexer.next_token();
+        assert_that!(token.is_some(), eq(true));
+        assert_that!(token.unwrap(), eq(Token::Value("-flag")));
+    }
+
+    #[test]
+    fn it_should_match_long_flag() {
+        let mut lexer = Lexer::new(&["--flag"]);
+
+        let token = lexer.next_token();
+        assert_that!(token.is_some(), eq(true));
+        assert_that!(token.unwrap(), eq(Token::LongFlag("flag")));
+    }
+
+    #[test]
+    fn it_should_match_numbers() {
+        let lexer = Lexer::new(&["-2", "2", "-2.", "2.", "-2.e1", "2.e1", "-2e1", "2e1"]);
+
+        for token in lexer {
+            assert_that!(token, matches_pattern!(&Token::Value(_)));
+        }
     }
 }
