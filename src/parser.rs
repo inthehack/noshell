@@ -21,12 +21,10 @@ pub enum Error {
     Lexer(#[from] lexer::Error),
 }
 
-pub const ARG_MATCHES_SIZE_MAX: usize = 16;
-
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ParsedArgs<'a> {
-    pub args: Vec<lexer::Token<'a>, ARG_MATCHES_SIZE_MAX>,
+pub struct ParsedArgs<'a, const ARG_COUNT_MAX: usize = 8> {
+    pub args: Vec<lexer::Token<'a>, ARG_COUNT_MAX>,
 }
 
 impl<'a> ParsedArgs<'a> {
