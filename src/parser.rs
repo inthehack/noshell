@@ -1,6 +1,9 @@
-use crate::lexer::{self, Token};
+use heapless::Vec;
+
+use crate::lexer;
 
 #[derive(Debug, Default, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     #[default]
     #[error("undefined parsing error")]
@@ -10,50 +13,45 @@ pub enum Error {
     Lexer(#[from] lexer::Error),
 }
 
-#[derive(Debug)]
-pub struct MyArgs {
-    // -v, --value
-    pub value: i32,
+pub const ARG_MATCHES_SIZE_MAX: usize = 16;
+
+#[derive(Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ParsedArgs<'a> {
+    pub args: Vec<lexer::Token<'a>, ARG_MATCHES_SIZE_MAX>,
 }
 
-impl MyArgs {
-    pub fn parse<'a, I>(tokens: &mut I) -> Result<MyArgs, Error>
+impl<'a> ParsedArgs<'a> {
+    pub fn get_one<'k>(&self, key: &'k str) -> Option<lexer::Token<'a>>
     where
-        I: Iterator<Item = Token<'a>>,
+        'a: 'k,
     {
-        let mut args: MyArgs = unsafe { ::core::mem::zeroed() };
+        self.args
+            .iter()
+            .find(|x| match_key_with_token(key, x))
+            .copied()
+    }
 
-        while let Some(token) = tokens.next() {
-            match token {
-                // New short arg.
-                Token::Short(key) => {
-                    if key == 'v' {
-                        if let Some(Token::Value(value)) = tokens.next() {
-                            args.value = value.try_into()?;
-                        } else {
-                            // Missing value.
-                            return Err(Error::Undefined);
-                        }
-                    }
-                }
+    pub fn get_many<'k>(&self, key: &'k str) -> Option<Vec<lexer::Token<'a>, ARG_MATCHES_SIZE_MAX>>
+    where
+        'a: 'k,
+    {
+        let iter = self.args.iter().filter(|x| match_key_with_token(key, x));
+        debug_assert!(iter.clone().count() <= ARG_MATCHES_SIZE_MAX);
 
-                // New long arg.
-                Token::Long(key) => {
-                    if key == "value" {
-                        if let Some(Token::Value(value)) = tokens.next() {
-                            args.value = value.try_into()?;
-                        } else {
-                            // Missing value.
-                            return Err(Error::Undefined);
-                        }
-                    }
-                }
+        let tokens = iter.copied().collect();
+        Some(tokens)
+    }
+}
 
-                Token::Value(_) => {}
-            }
-        }
-
-        Ok(args)
+fn match_key_with_token<'a, 'k>(key: &'k str, token: &lexer::Token<'a>) -> bool
+where
+    'a: 'k,
+{
+    match token {
+        lexer::Token::ShortFlag(name) => key.len() == 1 && *name == key.chars().next().unwrap(),
+        lexer::Token::LongFlag(name) => key.len() > 1 && *name == key,
+        _ => false,
     }
 }
 
@@ -64,37 +62,4 @@ mod tests {
     use crate::Lexer;
 
     use super::*;
-
-    #[test]
-    fn it_should_parse_i32_short_arg() {
-        let cmdline = &["-v", "2"];
-
-        let mut lexer = Lexer::new(cmdline);
-        let args = MyArgs::parse(&mut lexer);
-
-        assert_that!(args.is_ok(), eq(true));
-        assert_that!(args.unwrap().value, eq(2));
-    }
-
-    #[test]
-    fn it_should_parse_i32_long_arg() {
-        let cmdline = &["--value", "2"];
-
-        let mut lexer = Lexer::new(cmdline);
-        let args = MyArgs::parse(&mut lexer);
-
-        assert_that!(args.is_ok(), eq(true));
-        assert_that!(args.unwrap().value, eq(2));
-    }
-
-    #[test]
-    fn it_should_fail_i32_short_arg_with_missing_value() {
-        let cmdline = &["-v"];
-
-        let mut lexer = Lexer::new(cmdline);
-        let args = MyArgs::parse(&mut lexer);
-
-        assert_that!(args.is_err(), eq(true));
-        assert_that!(args.err().unwrap(), eq(&Error::Undefined));
-    }
 }
