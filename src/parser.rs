@@ -1,3 +1,5 @@
+use core::str::FromStr;
+
 use heapless::Vec;
 
 use crate::lexer;
@@ -22,25 +24,45 @@ pub struct ParsedArgs<'a> {
 }
 
 impl<'a> ParsedArgs<'a> {
-    pub fn get_one<'k>(&self, key: &'k str) -> Option<lexer::Token<'a>>
+    pub fn parse<I>(tokens: I) -> Self
     where
-        'a: 'k,
+        I: Iterator<Item = lexer::Token<'a>>,
     {
-        self.args
-            .iter()
-            .find(|x| match_key_with_token(key, x))
-            .copied()
+        let mut out = Self::default();
+
+        for token in tokens {
+            out.args.push(token).ok();
+        }
+
+        out
     }
 
-    pub fn get_many<'k>(&self, key: &'k str) -> Option<Vec<lexer::Token<'a>, ARG_MATCHES_SIZE_MAX>>
+    pub fn get<'k, T>(&self, key: &'k str) -> Result<Option<T>, Error>
     where
         'a: 'k,
+        T: FromStr,
     {
-        let iter = self.args.iter().filter(|x| match_key_with_token(key, x));
-        debug_assert!(iter.clone().count() <= ARG_MATCHES_SIZE_MAX);
+        let mut pending = false;
 
-        let tokens = iter.copied().collect();
-        Some(tokens)
+        for token in &self.args {
+            if match_key_with_token(key, token) {
+                pending = true;
+                continue;
+            }
+
+            if let lexer::Token::Value(value) = token {
+                // Parse error.
+                return Ok(Some(value.parse::<T>().map_err(|_| Error::Undefined)?));
+            }
+        }
+
+        // Missing value.
+        if pending {
+            return Err(Error::Undefined);
+        }
+
+        // Not found.
+        Ok(None)
     }
 }
 
@@ -62,4 +84,18 @@ mod tests {
     use crate::Lexer;
 
     use super::*;
+
+    #[test]
+    fn it_should_parse_expected_value() {
+        let lexer = Lexer::new(&["-v", "42"]);
+        let args = ParsedArgs::parse(lexer);
+        assert_that!(args.get::<u32>("v"), matches_pattern!(&Ok(Some(42))));
+    }
+
+    #[test]
+    fn it_should_parse_unexpected_value() {
+        let lexer = Lexer::new(&["-v", "-42"]);
+        let args = ParsedArgs::parse(lexer);
+        assert_that!(args.get::<u32>("v"), eq(&Err(Error::Undefined)));
+    }
 }
