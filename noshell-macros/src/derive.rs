@@ -1,65 +1,74 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
+use syn::ext::IdentExt;
 use syn::{
-    ext::IdentExt, spanned::Spanned, Data, DataStruct, DeriveInput, Field, Fields, Path,
+    spanned::Spanned, Data, DataStruct, DeriveInput, Field, Fields, FieldsNamed, Path,
     PathArguments, Type, TypePath,
 };
 
-use crate::helpers::token_stream_with_error;
+use crate::helpers::{error, token_stream_with_error};
 
 pub fn run(item: TokenStream) -> TokenStream {
-    let errors = TokenStream::new();
-
     let input: DeriveInput = match syn::parse2(item.clone()) {
         Ok(x) => x,
         Err(e) => return token_stream_with_error(item, e),
     };
 
-    let generated = match build_struct_parser(&input) {
-        Ok(x) => x,
-        Err(e) => return token_stream_with_error(item, e),
-    };
-
-    quote! {
-        #generated
-
-        #errors
-    }
+    run_derive(&input).unwrap_or_else(|err| {
+        let mut errors = TokenStream::new();
+        error(&mut errors, &input, err.to_string());
+        quote! {
+            #errors
+        }
+    })
 }
 
-fn build_struct_parser(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
+pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
     let ident = &input.ident;
 
-    let args = match input.data {
+    match input.data {
         Data::Struct(DataStruct {
             fields: Fields::Named(ref fields),
             ..
-        }) => fields
-            .named
-            .iter()
-            .map(build_arg_parser)
-            .collect::<Result<Vec<_>, syn::Error>>()?,
+        }) => {
+            let fields = collect_arg_fields(fields)?;
+            let init = build_arg_parsers(&fields)?;
 
-        _ => {
-            return Err(syn::Error::new(input.span(), "invalid arg struct"));
-        }
-    };
-
-    Ok(quote! {
-        #[automatically_derived]
-        impl #ident {
-            fn parse<'a>(__argv: &'a [&'a str]) -> Self {
-                let __tokens = noshell::Lexer::new(__argv);
-                let __args = noshell::ParsedArgs::parse(__tokens);
-
-                #ident {
-                    #(
-                        #args
-                    ),*
+            Ok(quote! {
+                impl #ident {
+                    pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
+                        let __tokens = noshell::Lexer::new(__argv);
+                        let __args = noshell::ParsedArgs::parse(__tokens)?;
+                        Ok(#ident #init)
+                    }
                 }
-            }
+            })
         }
-    })
+
+        // FIXME: do not support unamed struct or enum.
+        _ => {
+            let span = proc_macro2::Span::call_site();
+            let error = syn::Error::new(span, "#[derive(Parser)] only support named structs");
+            Err(error)
+        }
+    }
+}
+
+fn collect_arg_fields(fields: &FieldsNamed) -> Result<Vec<&Field>, syn::Error> {
+    Ok(fields.named.iter().collect())
+}
+
+fn build_arg_parsers(fields: &[&Field]) -> Result<TokenStream, syn::Error> {
+    let args = fields
+        .iter()
+        .map(|&field| build_arg_parser(field))
+        .collect::<Result<Vec<_>, syn::Error>>()?;
+
+    Ok(quote! {{
+        #(
+            #args
+        ),*
+    }})
 }
 
 fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
@@ -75,9 +84,7 @@ fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
         }
     } else {
         quote_spanned! { ty.span()=>
-            #args.get(#id)
-                .ok_or_else(||
-                    syn::Error::new(Span::new(), concat!("missing required value for: ", #id)))?
+            #args.get(#id)?.ok_or_else(|| noshell::Error::Undefined)?
         }
     };
 
@@ -136,5 +143,60 @@ mod tests {
 
         let ty = syn::parse_quote!(Result<i32, Error>);
         assert!(!is_option_ty(&ty));
+    }
+
+    #[test]
+    fn it_should_build_field_parser() {
+        let field = syn::parse_quote!(value: u32);
+        assert_eq!(
+            quote!(value: __args.get("value")?.ok_or_else(|| noshell::Error::Undefined)?)
+                .to_string(),
+            build_arg_parser(&field).unwrap().to_string()
+        );
+    }
+
+    #[test]
+    fn it_should_build_option_field_parser() {
+        let field = syn::parse_quote!(value: Option<u32>);
+        assert_eq!(
+            quote!(value: __args.get("value")?).to_string(),
+            build_arg_parser(&field).unwrap().to_string()
+        );
+    }
+
+    #[test]
+    fn it_should_build_option_field_parser_with_compound_type() {
+        let field = syn::parse_quote!(value: Option<mod1::mod2::u32>);
+        assert_eq!(
+            quote!(value: __args.get("value")?).to_string(),
+            build_arg_parser(&field).unwrap().to_string()
+        );
+    }
+
+    #[test]
+    fn it_should_build_struct_derive() {
+        let derive = syn::parse_quote! {
+            struct MyArgs {
+                field1: u32,
+                field2: Option<u32>,
+            }
+        };
+
+        assert_eq!(
+            quote! {
+                impl MyArgs {
+                    pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
+                        let __tokens = noshell::Lexer::new(__argv);
+                        let __args = noshell::ParsedArgs::parse(__tokens)?;
+                        Ok(MyArgs {
+                            field1: __args.get("field1")?.ok_or_else(|| noshell::Error::Undefined)?,
+                            field2: __args.get("field2")?
+                        })
+                    }
+                }
+            }
+            .to_string(),
+            run_derive(&derive).unwrap().to_string()
+        )
     }
 }
