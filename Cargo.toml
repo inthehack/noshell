@@ -9,7 +9,7 @@ repository = "https://github.com/inthehack/noshell"
 [workspace]
 resolver = "2"
 
-members = [ "noshell-parser", "noshell-macros" ]
+members = [ "noshell-parser", "noshell-macros" , "noshell"]
 
 [workspace.dependencies]
 defmt = { version = "0.3.10", default-features = false }
