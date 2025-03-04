@@ -1,5 +1,4 @@
-[package]
-name = "noshell"
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 authors = [ "Julien Guibert-Peeters <inthehack@mountainhacks.org>" ]
@@ -7,15 +6,13 @@ license = "APACHE-2.0 OR MIT"
 homepage = "https://github.com/inthehack/noshell"
 repository = "https://github.com/inthehack/noshell"
 
-[dependencies]
-defmt = { version = "0.3.10", default-features = false, optional = true }
-heapless = "0.8.0"
+[workspace]
+resolver = "2"
+
+members = [ "noshell-parser", "noshell-macros" ]
+
+[workspace.dependencies]
+defmt = { version = "0.3.10", default-features = false }
 thiserror = { version = "2.0.11", default-features = false }
 
-[features]
-default = []
-
-defmt = ["dep:defmt"]
-
-[dev-dependencies]
 googletest = "0.13.0"

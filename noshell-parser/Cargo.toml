@@ -1,0 +1,21 @@
+[package]
+name = "noshell-parser"
+
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+heapless = "0.8.0"
+
+defmt = { workspace = true, optional = true }
+thiserror.workspace = true
+
+[dev-dependencies]
+googletest.workspace = true
+
+[features]
+default = []
+
+defmt = ["dep:defmt"]
