@@ -1,11 +1,3 @@
-#[derive(Debug, Default, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    #[default]
-    #[error("undefined error")]
-    Undefined,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Token<'a> {

@@ -16,9 +16,6 @@ pub enum Error {
 
     #[error("missing argument")]
     MissingArgument,
-
-    #[error(transparent)]
-    Lexer(#[from] lexer::Error),
 }
 
 #[derive(Debug, Default)]
