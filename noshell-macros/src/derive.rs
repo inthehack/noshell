@@ -38,7 +38,7 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
                 impl #ident {
                     pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
                         let __tokens = noshell::Lexer::new(__argv);
-                        let __args = noshell::ParsedArgs::parse(__tokens)?;
+                        let __args = noshell::ParsedArgs::parse(__tokens);
                         Ok(#ident #init)
                     }
                 }
@@ -187,7 +187,7 @@ mod tests {
                 impl MyArgs {
                     pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
                         let __tokens = noshell::Lexer::new(__argv);
-                        let __args = noshell::ParsedArgs::parse(__tokens)?;
+                        let __args = noshell::ParsedArgs::parse(__tokens);
                         Ok(MyArgs {
                             field1: __args.get("field1")?.ok_or_else(|| noshell::Error::Undefined)?,
                             field2: __args.get("field2")?
