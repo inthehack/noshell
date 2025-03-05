@@ -19,3 +19,6 @@ thiserror.workspace = true
 default = []
 
 defmt = ["dep:defmt"]
+
+[dev-dependencies]
+googletest.workspace = true
