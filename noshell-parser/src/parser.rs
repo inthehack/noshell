@@ -4,13 +4,9 @@ use heapless::Vec;
 
 use crate::lexer;
 
-#[derive(Debug, Default, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    #[default]
-    #[error("undefined parsing error")]
-    Undefined,
-
     #[error("invalid argument")]
     InvalidArgument,
 
