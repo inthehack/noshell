@@ -8,6 +8,7 @@ version.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description.workspace = true
+readme.workspace = true
 
 [dependencies]
 heapless = "0.8.0"
