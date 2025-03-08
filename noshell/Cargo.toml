@@ -18,7 +18,7 @@ thiserror.workspace = true
 [features]
 default = []
 
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "noshell-parser/defmt"]
 
 [dev-dependencies]
 googletest.workspace = true
