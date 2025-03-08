@@ -2,15 +2,18 @@
 # This file defines the rules that one can call from the `just` utility.
 #
 # Authors:
-#   Julien Peeters <julien@mountainhacks.org>
+#   Julien Peeters <inthehack@mountainhacks.org>
 #
 
+set quiet := true
+
+# Initialize environment.
+[group('utility')]
 mod init 'just/init.just'
 
-# Print this message
-[group('utility')]
+# Print this message.
 help:
-    @just --list
+    just --list
 
 # Build the current workspace using the given PROFILE.
 [group('build')]
@@ -35,12 +38,12 @@ build PROFILE *OPTS:
 
     nix build {{ OPTS }} '.#{{ PROFILE }}'
 
-# Clean the cargo build artifacts
+# Clean the cargo build artifacts.
 [group('utility')]
 clean:
-    @rm -rf target
+    rm -rf target
 
-# Wipe all non-versioned data
+# Wipe all non-versioned data.
 [group("utility")]
 mrproper:
-    @git clean -dffx
+    git clean -dffx
