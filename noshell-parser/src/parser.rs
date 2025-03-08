@@ -1,26 +1,37 @@
+//! A parser for collecting arguments from a token stream.
+
 use core::str::FromStr;
 
 use heapless::Vec;
 
 use crate::lexer;
 
+/// Defines the possible errors that may occur during parsing of arguments.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Error {
+    /// The argument value is invalid, meaning that it cannot be converted to the destination
+    /// type. This could mean that there is a missing implementation for [`str::parse`] trait.
     #[error("invalid argument")]
     InvalidArgument,
 
+    /// The argument value is missing, which occurs when the flag is not boolean and expect a
+    /// value.
     #[error("missing argument")]
     MissingArgument,
 }
 
+/// Defines the result of argument parsing. This is a simple key-value store that offers a look-up
+/// over parsed arguments.
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ParsedArgs<'a, const ARG_COUNT_MAX: usize = 8> {
-    pub args: Vec<lexer::Token<'a>, ARG_COUNT_MAX>,
+    args: Vec<lexer::Token<'a>, ARG_COUNT_MAX>,
 }
 
 impl<'a> ParsedArgs<'a> {
+    /// Parse the command line input from a token stream. The result is the set of found arguments.
     pub fn parse<I>(tokens: I) -> Self
     where
         I: Iterator<Item = lexer::Token<'a>>,
@@ -34,6 +45,7 @@ impl<'a> ParsedArgs<'a> {
         out
     }
 
+    /// Try to get and parse the argument value if any.
     pub fn get<'k, T>(&self, key: &'k str) -> Result<Option<T>, Error>
     where
         'a: 'k,
@@ -65,6 +77,7 @@ impl<'a> ParsedArgs<'a> {
         Ok(None)
     }
 
+    /// Check if there exists an argument with the given key (i.e. short or long flag).
     pub fn is_enabled<'k>(&self, key: &'k str) -> bool
     where
         'a: 'k,

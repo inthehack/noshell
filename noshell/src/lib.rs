@@ -1,17 +1,18 @@
+//! noshell, a `no_std` argument parser and a shell for constrained systems.
 #![no_std]
+#![deny(missing_docs)]
 
 pub use noshell_macros::Parser;
-pub use noshell_parser::{Lexer, ParsedArgs};
+pub use noshell_parser::{Error as ParserError, Lexer, ParsedArgs};
 
-#[derive(Debug, Default, PartialEq, Eq, thiserror::Error)]
+/// Defines the possible errors that may occur during usage of the crate.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Error {
-    #[default]
-    #[error("undefined error")]
-    Undefined,
-
+    /// An error comes from the parsing of arguments.
     #[error(transparent)]
-    Parser(#[from] noshell_parser::Error),
+    Parser(#[from] ParserError),
 }
 
 #[cfg(test)]

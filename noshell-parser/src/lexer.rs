@@ -1,11 +1,22 @@
+//! A lexer for generating tokens from a command line.
+
+/// Defines a `Token` that has been read from the command line.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Token<'a> {
+    /// Short flag (e.g. -f).
     ShortFlag(char),
+
+    /// Long flag (e.g. --flag).
     LongFlag(&'a str),
+
+    /// Value (i.e. everything that is not a short or long flag).
     Value(&'a str),
 }
 
+/// Defines a `Lexer` that is responsible for streaming tokens from the command line input.
+///
+/// A lexer acts like an forward iterator.
 #[derive(Clone, Debug)]
 pub struct Lexer<'a> {
     args: &'a [&'a str],
@@ -13,10 +24,12 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
+    /// Create a new lexer from the command line input.
     pub fn new(args: &'a [&'a str]) -> Self {
         Lexer { args, cursor: 0 }
     }
 
+    /// Retrieve the next token on the command line if any.
     pub fn next_token(&mut self) -> Option<Token<'a>> {
         if self.cursor >= self.args.len() {
             return None;
