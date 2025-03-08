@@ -6,6 +6,7 @@ license = "Apache-2.0 OR MIT"
 homepage = "https://github.com/inthehack/noshell"
 repository = "https://github.com/inthehack/noshell"
 description = "noshell, a no_std argument parser and a shell for constrained systems."
+readme = "README.md"
 
 [workspace]
 resolver = "2"
