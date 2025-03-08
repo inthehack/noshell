@@ -1,1 +1,1 @@
-#noshell, a no_std shell for embedded systems
+noshell, a `no_std` argument parser and a shell for constrained systems
