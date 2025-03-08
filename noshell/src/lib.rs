@@ -1,3 +1,5 @@
+#![no_std]
+
 pub use noshell_macros::Parser;
 pub use noshell_parser::{Lexer, ParsedArgs};
 
