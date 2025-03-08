@@ -15,11 +15,11 @@ This crate is still a work in progress and is subject to huge changes in its API
 
 # Roadmap
 
-[ ] Add support for `noline` crate, waiting for a custom handling of terminal escape codes.
-[ ] Add more parsers for destination value like `Option<Vec<_>>` or `Vec<_>` for instance.
-[ ] Add automatic generation of help output.
-[ ] Add completion thanks to escape codes (i.e. a press on Tab for instance).
-[ ] Add support for subcommands and related global and local arguments
+- [ ] Add support for `noline` crate, waiting for a custom handling of terminal escape codes.
+- [ ] Add more parsers for destination value like `Option<Vec<_>>` or `Vec<_>` for instance.
+- [ ] Add automatic generation of help output.
+- [ ] Add completion thanks to escape codes (i.e. a press on Tab for instance).
+- [ ] Add support for subcommands and related global and local arguments
 
 Please feel free to email me with suggestions or directly propose a Pull Request with some valuable
 contribution. As it is the beginning of the project, I will take time to studi every contribution.
