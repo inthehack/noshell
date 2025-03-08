@@ -161,6 +161,7 @@ name = "noshell"
 version = "0.1.0"
 dependencies = [
  "defmt",
+ "googletest",
  "noshell-macros",
  "noshell-parser",
  "thiserror",
