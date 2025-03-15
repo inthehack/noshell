@@ -2,8 +2,10 @@
 #![no_std]
 #![deny(missing_docs)]
 
-pub use noshell_macros::Parser;
-pub use noshell_parser::{Error as ParserError, Lexer, ParsedArgs};
+pub use noshell_macros as macros;
+pub use noshell_parser as parser;
+
+pub use macros::Parser;
 
 /// Defines the possible errors that may occur during usage of the crate.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -12,7 +14,7 @@ pub use noshell_parser::{Error as ParserError, Lexer, ParsedArgs};
 pub enum Error {
     /// An error comes from the parsing of arguments.
     #[error(transparent)]
-    Parser(#[from] ParserError),
+    Parser(#[from] parser::Error),
 }
 
 #[cfg(test)]

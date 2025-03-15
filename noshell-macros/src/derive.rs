@@ -2,8 +2,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
 use syn::ext::IdentExt;
 use syn::{
-    spanned::Spanned, Data, DataStruct, DeriveInput, Field, Fields, FieldsNamed, Path,
-    PathArguments, Type, TypePath,
+    Data, DataStruct, DeriveInput, Field, Fields, FieldsNamed, Path, PathArguments, Type, TypePath,
+    spanned::Spanned,
 };
 
 use crate::helpers::{error, token_stream_with_error};
@@ -37,8 +37,8 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
             Ok(quote! {
                 impl #ident {
                     pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
-                        let __tokens = noshell::Lexer::new(__argv);
-                        let __args = noshell::ParsedArgs::parse(__tokens);
+                        let __tokens = noshell::parser::Lexer::new(__argv);
+                        let __args = noshell::parser::ParsedArgs::parse(__tokens);
                         Ok(#ident #init)
                     }
                 }
@@ -84,7 +84,7 @@ fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
         }
     } else {
         quote_spanned! { ty.span()=>
-            #args.get(#id)?.ok_or_else(|| noshell::Error::Undefined)?
+            #args.get(#id)?.ok_or_else(|| noshell::parser::Error::MissingArgument)?
         }
     };
 
@@ -149,8 +149,10 @@ mod tests {
     fn it_should_build_field_parser() {
         let field = syn::parse_quote!(value: u32);
         assert_eq!(
-            quote!(value: __args.get("value")?.ok_or_else(|| noshell::Error::Undefined)?)
-                .to_string(),
+            quote!(
+                value: __args.get("value")?.ok_or_else(|| noshell::parser::Error::MissingArgument)?
+            )
+            .to_string(),
             build_arg_parser(&field).unwrap().to_string()
         );
     }
@@ -186,10 +188,11 @@ mod tests {
             quote! {
                 impl MyArgs {
                     pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
-                        let __tokens = noshell::Lexer::new(__argv);
-                        let __args = noshell::ParsedArgs::parse(__tokens);
+                        let __tokens = noshell::parser::Lexer::new(__argv);
+                        let __args = noshell::parser::ParsedArgs::parse(__tokens);
                         Ok(MyArgs {
-                            field1: __args.get("field1")?.ok_or_else(|| noshell::Error::Undefined)?,
+                            field1: __args.get("field1")?
+                                .ok_or_else(|| noshell::parser::Error::MissingArgument)?,
                             field2: __args.get("field2")?
                         })
                     }
