@@ -60,7 +60,7 @@ impl<'a> ParsedArgs<'a> {
             }
 
             if wait_for_value {
-                if let lexer::Token::Value(value) = token {
+                if let lexer::Token::Value(value) = *token {
                     let typed = value.parse::<T>().map_err(|_| Error::InvalidArgument)?;
                     return Ok(Some(typed));
                 }
