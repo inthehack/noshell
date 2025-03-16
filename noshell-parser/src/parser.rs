@@ -1,10 +1,11 @@
 //! A parser for collecting arguments from a token stream.
 
+use core::fmt::Debug;
 use core::str::FromStr;
 
 use heapless::Vec;
 
-use crate::lexer;
+use crate::lexer::{Flag, IntoTokens, Token, Values};
 
 /// Defines the possible errors that may occur during parsing of arguments.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -20,6 +21,10 @@ pub enum Error {
     /// value.
     #[error("missing argument")]
     MissingArgument,
+
+    /// Insufficient space for parsing arguments.
+    #[error("out of parser memory space")]
+    OutOfMemory,
 }
 
 /// Defines the result of argument parsing. This is a simple key-value store that offers a look-up
@@ -27,79 +32,103 @@ pub enum Error {
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ParsedArgs<'a, const ARG_COUNT_MAX: usize = 8> {
-    args: Vec<lexer::Token<'a>, ARG_COUNT_MAX>,
+    args: Vec<(Flag<'a>, Values<'a>), ARG_COUNT_MAX>,
 }
 
-impl<'a> ParsedArgs<'a> {
+impl<'a, const SIZE: usize> ParsedArgs<'a, SIZE> {
     /// Parse the command line input from a token stream. The result is the set of found arguments.
-    pub fn parse<I>(tokens: I) -> Self
-    where
-        I: Iterator<Item = lexer::Token<'a>>,
-    {
+    pub fn parse(argv: impl IntoTokens<'a>) -> Self {
+        Self::try_parse(argv).expect("cannot parse arguments")
+    }
+
+    /// Try to parse the input arguments.
+    pub fn try_parse(argv: impl IntoTokens<'a>) -> Result<Self, Error> {
+        let mut tokens = argv.into_tokens();
+
         let mut out = Self::default();
 
-        for token in tokens {
-            out.args.push(token).ok();
+        while let Some(token) = tokens.next() {
+            if let Token::Flag(x) = &token {
+                if out.args.push((*x, tokens.values())).is_err() {
+                    return Err(Error::OutOfMemory);
+                }
+            }
         }
 
-        out
+        Ok(out)
+    }
+
+    /// Check if there exists an argument with the given key (i.e. short or long flag).
+    #[inline(always)]
+    pub fn contains(&self, id: &str) -> bool {
+        self.args.iter().any(|x| x.0 == id)
+    }
+
+    /// Get one value for the given flag identifier.
+    pub fn get_one<T>(&self, id: &str) -> Option<T>
+    where
+        T: FromStr,
+    {
+        self.try_get_one::<T>(id).expect("invalid argument")
+    }
+
+    /// Get many values for the given flag identifier.
+    pub fn get_many<B, T>(&self, id: &str) -> Option<B>
+    where
+        B: FromIterator<T>,
+        T: FromStr,
+    {
+        self.try_get_many::<B, T>(id).expect("invalid argument")
     }
 
     /// Try to get and parse the argument value if any.
-    pub fn get<'k, T>(&self, key: &'k str) -> Result<Option<T>, Error>
+    pub fn try_get_one<T>(&self, id: &str) -> Result<Option<T>, Error>
     where
-        'a: 'k,
         T: FromStr,
     {
-        let mut wait_for_value = false;
+        if let Some((_, values)) = self.args.iter().find(|x| x.0 == id) {
+            let mut iter = values.clone();
 
-        for token in &self.args {
-            if !wait_for_value && match_key_with_token(key, token) {
-                wait_for_value = true;
-                continue;
+            let value = if let Some(value) = iter.next() {
+                value
+            } else {
+                // The argument has no value.
+                return Err(Error::InvalidArgument);
+            };
+
+            if iter.next().is_some() {
+                // The argument has more than one value.
+                return Err(Error::InvalidArgument);
             }
 
-            if wait_for_value {
-                if let lexer::Token::Value(value) = *token {
-                    let typed = value.parse::<T>().map_err(|_| Error::InvalidArgument)?;
-                    return Ok(Some(typed));
-                }
-
-                return Err(Error::MissingArgument);
-            }
-        }
-
-        // Not enough tokens.
-        if wait_for_value {
-            return Err(Error::MissingArgument);
+            // The value cannot be parsed to the target type `T`.
+            return value
+                .parse::<T>()
+                .map(Some)
+                .map_err(|_| Error::InvalidArgument);
         }
 
         Ok(None)
     }
 
-    /// Check if there exists an argument with the given key (i.e. short or long flag).
-    pub fn is_enabled<'k>(&self, key: &'k str) -> bool
+    /// Try to get and parse the argument value if any. The value can be constructed from
+    /// an iterator.
+    pub fn try_get_many<B, T>(&self, id: &str) -> Result<Option<B>, Error>
     where
-        'a: 'k,
+        B: FromIterator<T>,
+        T: FromStr,
     {
-        for token in &self.args {
-            if match_key_with_token(key, token) {
-                return true;
-            }
+        if let Some((_, values)) = self.args.iter().find(|x| x.0 == id) {
+            let iter = values.clone();
+
+            // Collect on Seq<Result<T, _>> can be coerced to Result<Seq<T>, _>.
+            let result: Result<B, _> = iter.map(|x| x.parse::<T>()).collect();
+
+            // The value cannot be parsed to the target type `T`.
+            return result.map(Some).map_err(|_| Error::InvalidArgument);
         }
 
-        false
-    }
-}
-
-fn match_key_with_token<'a, 'k>(key: &'k str, token: &lexer::Token<'a>) -> bool
-where
-    'a: 'k,
-{
-    match token {
-        lexer::Token::ShortFlag(name) => key.len() == 1 && *name == key.chars().next().unwrap(),
-        lexer::Token::LongFlag(name) => key.len() > 1 && *name == key,
-        _ => false,
+        Ok(None)
     }
 }
 
@@ -107,44 +136,56 @@ where
 mod tests {
     use googletest::prelude::*;
 
-    use crate::Lexer;
+    use crate::lexer::Tokens;
 
     use super::*;
 
     #[test]
     fn it_should_parse_valid_value() {
-        let lexer = Lexer::new(&["-v", "42"]);
-        let args = ParsedArgs::parse(lexer);
-        assert_that!(args.get::<u32>("v"), matches_pattern!(&Ok(Some(42))));
+        let tokens = Tokens::new(&["-v", "42"]);
+        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
+        assert_that!(
+            args.try_get_one::<u32>("v"),
+            matches_pattern!(&Ok(Some(42)))
+        );
     }
 
     #[test]
     fn it_should_parse_invalid_arg() {
-        let lexer = Lexer::new(&["-v", "-42"]);
-        let args = ParsedArgs::parse(lexer);
-        assert_that!(args.get::<u32>("v"), eq(&Err(Error::InvalidArgument)));
+        let tokens = Tokens::new(&["-v", "-42"]);
+        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
+        assert_that!(
+            args.try_get_one::<u32>("v"),
+            eq(&Err(Error::InvalidArgument))
+        );
     }
 
     #[test]
     fn it_should_parse_missing_arg() {
-        let lexer = Lexer::new(&["-v"]);
-        let args = ParsedArgs::parse(lexer);
-        assert_that!(args.get::<u32>("v"), eq(&Err(Error::MissingArgument)));
+        let tokens = Tokens::new(&["-v"]);
+        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
+        assert_that!(
+            args.try_get_one::<u32>("v"),
+            eq(&Err(Error::InvalidArgument))
+        );
     }
 
     #[test]
     fn it_should_parse_enabled_bool_arg() {
-        let lexer = Lexer::new(&["-v"]);
-        let args = ParsedArgs::parse(lexer);
-        assert_that!(args.is_enabled("v"), eq(true));
-        assert_that!(args.get::<bool>("v"), eq(&Err(Error::MissingArgument)));
+        let tokens = Tokens::new(&["-v"]);
+        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
+        assert_that!(args.contains("v"), eq(true));
+        assert_that!(
+            args.try_get_one::<bool>("v"),
+            eq(&Err(Error::InvalidArgument))
+        );
     }
 
     #[test]
     fn it_should_parse_enabled_bool_arg_with_value() {
-        let lexer = Lexer::new(&["-v", "true"]);
-        let args = ParsedArgs::parse(lexer);
-        assert_that!(args.is_enabled("v"), eq(true));
-        assert_that!(args.get::<bool>("v"), eq(&Ok(Some(true))));
+        let tokens = Tokens::new(&["-v", "true"]);
+        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
+        assert_that!(args.contains("v"), eq(true));
+        assert_that!(args.try_get_one::<bool>("v"), eq(&Ok(Some(true))));
     }
 }

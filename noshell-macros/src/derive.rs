@@ -37,8 +37,11 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
             Ok(quote! {
                 impl #ident {
                     pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
-                        let __tokens = noshell::parser::Lexer::new(__argv);
-                        let __args = noshell::parser::ParsedArgs::parse(__tokens);
+                        use noshell::parser::ParsedArgs;
+
+                        let __tokens = noshell::parser::Tokens::new(__argv);
+                        let __args: ParsedArgs<'_, 64> = noshell::parser::ParsedArgs::parse(__tokens);
+
                         Ok(#ident #init)
                     }
                 }
@@ -80,11 +83,11 @@ fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
 
     let value = if is_option_ty(ty) {
         quote_spanned! { ty.span()=>
-            #args.get(#id)?
+            #args.try_get_one(#id)?
         }
     } else {
         quote_spanned! { ty.span()=>
-            #args.get(#id)?.ok_or_else(|| noshell::parser::Error::MissingArgument)?
+            #args.try_get_one(#id)?.ok_or_else(|| noshell::parser::Error::MissingArgument)?
         }
     };
 
@@ -150,7 +153,8 @@ mod tests {
         let field = syn::parse_quote!(value: u32);
         assert_eq!(
             quote!(
-                value: __args.get("value")?.ok_or_else(|| noshell::parser::Error::MissingArgument)?
+                value: __args.try_get_one("value")?
+                    .ok_or_else(|| noshell::parser::Error::MissingArgument)?
             )
             .to_string(),
             build_arg_parser(&field).unwrap().to_string()
@@ -161,7 +165,7 @@ mod tests {
     fn it_should_build_option_field_parser() {
         let field = syn::parse_quote!(value: Option<u32>);
         assert_eq!(
-            quote!(value: __args.get("value")?).to_string(),
+            quote!(value: __args.try_get_one("value")?).to_string(),
             build_arg_parser(&field).unwrap().to_string()
         );
     }
@@ -170,7 +174,7 @@ mod tests {
     fn it_should_build_option_field_parser_with_compound_type() {
         let field = syn::parse_quote!(value: Option<mod1::mod2::u32>);
         assert_eq!(
-            quote!(value: __args.get("value")?).to_string(),
+            quote!(value: __args.try_get_one("value")?).to_string(),
             build_arg_parser(&field).unwrap().to_string()
         );
     }
@@ -188,12 +192,15 @@ mod tests {
             quote! {
                 impl MyArgs {
                     pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
-                        let __tokens = noshell::parser::Lexer::new(__argv);
-                        let __args = noshell::parser::ParsedArgs::parse(__tokens);
+                        use noshell::parser::ParsedArgs;
+
+                        let __tokens = noshell::parser::Tokens::new(__argv);
+                        let __args: ParsedArgs<'_, 64> = noshell::parser::ParsedArgs::parse(__tokens);
+
                         Ok(MyArgs {
-                            field1: __args.get("field1")?
+                            field1: __args.try_get_one("field1")?
                                 .ok_or_else(|| noshell::parser::Error::MissingArgument)?,
-                            field2: __args.get("field2")?
+                            field2: __args.try_get_one("field2")?
                         })
                     }
                 }

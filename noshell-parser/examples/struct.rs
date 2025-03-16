@@ -1,6 +1,6 @@
 use core::panic;
 
-use noshell_parser::{Lexer, ParsedArgs};
+use noshell_parser::{ParsedArgs, Tokens};
 
 struct MyArgs {
     field1: u32,
@@ -10,15 +10,15 @@ struct MyArgs {
 fn main() {
     let argv = &["--field1", "42"];
 
-    let tokens = Lexer::new(argv);
-    let parsed = ParsedArgs::parse(tokens);
+    let tokens = Tokens::new(argv);
+    let parsed: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
 
     let args = MyArgs {
         field1: parsed
-            .get("field1")
+            .try_get_one("field1")
             .expect("must be parsed")
             .expect("must be present"),
-        field2: parsed.get("field2").expect("must be parsed"),
+        field2: parsed.try_get_one("field2").expect("must be parsed"),
     };
 
     if 42 != args.field1 {

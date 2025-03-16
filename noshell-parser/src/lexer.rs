@@ -11,6 +11,21 @@ pub enum Flag<'a> {
     Long(&'a str),
 }
 
+impl PartialEq<&str> for Flag<'_> {
+    fn eq(&self, other: &&str) -> bool {
+        match self {
+            Flag::Short(id) => {
+                if let Some(x) = other.chars().next() {
+                    *id == x
+                } else {
+                    false
+                }
+            }
+            Flag::Long(id) => *id == *other,
+        }
+    }
+}
+
 /// Defines a `Token` that has been read from the command line.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -80,6 +95,7 @@ impl Token<'_> {
 ///
 /// A lexer acts like an forward iterator.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Tokens<'a> {
     argv: &'a [&'a str],
     cursor: usize,
@@ -138,7 +154,27 @@ impl<'a> Iterator for Tokens<'a> {
     }
 }
 
+/// A trait for creating a [`Tokens`] iterator from other types.
+pub trait IntoTokens<'a> {
+    /// Convert into the iterator.
+    fn into_tokens(self) -> Tokens<'a>;
+}
+
+impl<'a> IntoTokens<'a> for Tokens<'a> {
+    fn into_tokens(self) -> Tokens<'a> {
+        self
+    }
+}
+
+impl<'a> IntoTokens<'a> for &'a [&'a str] {
+    fn into_tokens(self) -> Tokens<'a> {
+        Tokens::new(self)
+    }
+}
+
 /// A iterator over value tokens.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Values<'a> {
     argv: &'a [&'a str],
     cursor: usize,
