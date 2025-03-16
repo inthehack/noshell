@@ -9,5 +9,5 @@ pub mod lexer;
 /// Parser for collecting argument flags and values from a token stream.
 pub mod parser;
 
-pub use lexer::Lexer;
+pub use lexer::Tokens;
 pub use parser::{Error, ParsedArgs};
