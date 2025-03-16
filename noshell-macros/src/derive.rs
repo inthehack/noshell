@@ -1,12 +1,10 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
 use syn::ext::IdentExt;
-use syn::{
-    Data, DataStruct, DeriveInput, Field, Fields, FieldsNamed, Path, PathArguments, Type, TypePath,
-    spanned::Spanned,
-};
+use syn::{Data, DataStruct, DeriveInput, Field, Fields, FieldsNamed, spanned::Spanned};
 
 use crate::helpers::{error, token_stream_with_error};
+use crate::ty::Ty;
 
 pub fn run(item: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(item.clone()) {
@@ -81,72 +79,44 @@ fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
     let ident = field.ident.clone().unwrap();
     let id = ident.unraw().to_string();
 
-    let value = if is_option_ty(ty) {
-        quote_spanned! { ty.span()=>
+    let value = match Ty::from_syn_ty(ty) {
+        Ty::Option => quote_spanned! { ty.span()=>
             #args.try_get_one(#id)?
-        }
-    } else {
-        quote_spanned! { ty.span()=>
+        },
+
+        Ty::OptionOption => quote_spanned! { ty.span()=>
+            if #args.contains(#id) {
+                Some(#args.try_get_one(#id)?)
+            } else {
+                None
+            }
+        },
+
+        Ty::OptionVec => quote_spanned! { ty.span()=>
+            if #args.contains(#id) {
+                Some(#args.try_get_many::<Vec<_>, _>(#id)?)
+            } else {
+                None
+            }
+        },
+
+        Ty::Vec => quote_spanned! { ty.span()=>
+            #args.try_get_many::<Vec<_>, _>(#id)?
+        },
+
+        Ty::Simple => quote_spanned! { ty.span()=>
             #args.try_get_one(#id)?.ok_or_else(|| noshell::parser::Error::MissingArgument)?
-        }
+        },
     };
 
-    Ok(quote_spanned! {ty.span()=>
+    Ok(quote_spanned! { field.span()=>
         #ident: #value
     })
-}
-
-fn is_option_ty(ty: &Type) -> bool {
-    match ty {
-        Type::Path(TypePath {
-            qself: None,
-            path:
-                Path {
-                    leading_colon: None,
-                    segments,
-                },
-        }) => {
-            // Look for the last type component in a::b::type.
-            if let Some(last) = segments.last() {
-                // Check that the type identifier is actually `Option`.
-                if last.ident == "Option" {
-                    // Check that the `Option` type has arguments inside brackets (i.e. <...>).
-                    if let PathArguments::AngleBracketed(args) = &last.arguments {
-                        return args.args.last().is_some();
-                    }
-                }
-            }
-
-            // Not type path.
-            false
-        }
-
-        // Not a type.
-        _ => false,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn it_should_check_option_type() {
-        let ty = syn::parse_quote!(Option<i32>);
-        assert!(is_option_ty(&ty));
-
-        let ty = syn::parse_quote!(core::ops::Option<i32>);
-        assert!(is_option_ty(&ty));
-
-        let ty = syn::parse_quote!(Option<mod1::Type1>);
-        assert!(is_option_ty(&ty));
-
-        let ty = syn::parse_quote!(i32);
-        assert!(!is_option_ty(&ty));
-
-        let ty = syn::parse_quote!(Result<i32, Error>);
-        assert!(!is_option_ty(&ty));
-    }
 
     #[test]
     fn it_should_build_field_parser() {
