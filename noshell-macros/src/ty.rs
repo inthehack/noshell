@@ -33,6 +33,16 @@ impl Ty {
 
 // These following helpers have been take from the `clap` crate.
 
+pub(crate) fn get_inner_ty(ty: &Type) -> &Type {
+    let field_ty = Ty::from_syn_ty(ty);
+
+    match field_ty {
+        Ty::Option | Ty::Vec => get_ty_param(ty).unwrap_or(ty),
+        Ty::OptionOption | Ty::OptionVec => get_ty_param(ty).and_then(get_ty_param).unwrap_or(ty),
+        Ty::Simple => ty,
+    }
+}
+
 pub(crate) fn is_simple_ty(ty: &Type, name: &str) -> bool {
     only_last_path_segment(ty)
         .map(|segment| {
@@ -49,6 +59,10 @@ pub(crate) fn has_ty_param_if_name(ty: &Type, name: &str) -> bool {
     get_ty_param_if_name(ty, name).is_some()
 }
 
+pub(crate) fn get_ty_param(ty: &Type) -> Option<&Type> {
+    get_ty_param_if(ty, |_| true)
+}
+
 pub(crate) fn get_ty_param_if_name<'a>(ty: &'a Type, name: &str) -> Option<&'a Type> {
     get_ty_param_if(ty, |x| x.ident == name)
 }
@@ -61,7 +75,9 @@ where
         .filter(|segment| f(segment))
         .and_then(|segment| {
             if let PathArguments::AngleBracketed(args) = &segment.arguments {
-                only_one(args.args.iter()).and_then(|arg| {
+                // NOTE: Only consider the first type parameter, which is assumed to hold
+                // inner type.
+                args.args.iter().next().and_then(|arg| {
                     if let GenericArgument::Type(ty) = arg {
                         Some(ty)
                     } else {

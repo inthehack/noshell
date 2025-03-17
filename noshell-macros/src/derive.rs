@@ -4,7 +4,7 @@ use syn::ext::IdentExt;
 use syn::{Data, DataStruct, DeriveInput, Field, Fields, FieldsNamed, spanned::Spanned};
 
 use crate::helpers::{error, token_stream_with_error};
-use crate::ty::Ty;
+use crate::ty::{Ty, get_inner_ty};
 
 pub fn run(item: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(item.clone()) {
@@ -74,38 +74,70 @@ fn build_arg_parsers(fields: &[&Field]) -> Result<TokenStream, syn::Error> {
 
 fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
     let ty = &field.ty;
+    let inner_ty = get_inner_ty(ty);
+
     let args = format_ident!("__args");
+    let try_get_one = quote_spanned!(inner_ty.span()=> try_get_one::<#inner_ty>);
+    // FIXME: can use a variable `heapless::Vec` size.
+    let try_get_many = quote_spanned!(inner_ty.span()=> try_get_many::<Vec<_, 8>, #inner_ty>);
 
     let ident = field.ident.clone().unwrap();
     let id = ident.unraw().to_string();
 
     let value = match Ty::from_syn_ty(ty) {
+        // Optional argument with required value.
         Ty::Option => quote_spanned! { ty.span()=>
-            #args.try_get_one(#id)?
+            if #args.contains(#id) {
+                Some(
+                    #args.#try_get_one(#id)
+                        .map(Option::unwrap)
+                        .and_then(noshell::parser::utils::check_value_is_missing)
+                        .map(Option::unwrap)?
+                )
+            } else {
+                None
+            }
         },
 
+        // Optional argument with optional value.
         Ty::OptionOption => quote_spanned! { ty.span()=>
             if #args.contains(#id) {
-                Some(#args.try_get_one(#id)?)
+                Some(
+                    #args.#try_get_one(#id).map(Option::flatten)?
+                )
             } else {
                 None
             }
         },
 
+        // Optional argument with required non-empty sequence of values.
         Ty::OptionVec => quote_spanned! { ty.span()=>
             if #args.contains(#id) {
-                Some(#args.try_get_many::<Vec<_>, _>(#id)?)
+                Some(
+                    #args.#try_get_many(#id)
+                        .map(Option::unwrap)
+                        .and_then(noshell::parser::utils::check_vec_is_missing)?
+                )
             } else {
                 None
             }
         },
 
+        // Required argument with required non-empty sequence of values.
         Ty::Vec => quote_spanned! { ty.span()=>
-            #args.try_get_many::<Vec<_>, _>(#id)?
+            #args.#try_get_many(#id)
+                .and_then(noshell::parser::utils::check_arg_is_missing)
+                .map(Option::unwrap)
+                .and_then(noshell::parser::utils::check_vec_is_missing)?
         },
 
+        // Required argument with required value.
         Ty::Simple => quote_spanned! { ty.span()=>
-            #args.try_get_one(#id)?.ok_or_else(|| noshell::parser::Error::MissingArgument)?
+            #args.#try_get_one(#id)
+                .and_then(noshell::parser::utils::check_arg_is_missing)
+                .map(Option::unwrap)
+                .and_then(noshell::parser::utils::check_value_is_missing)
+                .map(Option::unwrap)?
         },
     };
 
@@ -119,12 +151,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_should_build_field_parser() {
+    fn it_should_build_parser_for_simple_type() {
         let field = syn::parse_quote!(value: u32);
         assert_eq!(
             quote!(
-                value: __args.try_get_one("value")?
-                    .ok_or_else(|| noshell::parser::Error::MissingArgument)?
+                value: __args.try_get_one::<u32>("value")
+                    .and_then(noshell::parser::utils::check_arg_is_missing)
+                    .map(Option::unwrap)
+                    .and_then(noshell::parser::utils::check_value_is_missing)
+                    .map(Option::unwrap)?
             )
             .to_string(),
             build_arg_parser(&field).unwrap().to_string()
@@ -132,19 +167,75 @@ mod tests {
     }
 
     #[test]
-    fn it_should_build_option_field_parser() {
+    fn it_should_build_parser_for_option_type() {
         let field = syn::parse_quote!(value: Option<u32>);
         assert_eq!(
-            quote!(value: __args.try_get_one("value")?).to_string(),
+            quote!(
+                value: if __args.contains("value") {
+                    Some(
+                        __args.try_get_one::<u32>("value")
+                            .map(Option::unwrap)
+                            .and_then(noshell::parser::utils::check_value_is_missing)
+                            .map(Option::unwrap)?
+                    )
+                } else {
+                    None
+                }
+            )
+            .to_string(),
             build_arg_parser(&field).unwrap().to_string()
         );
     }
 
     #[test]
-    fn it_should_build_option_field_parser_with_compound_type() {
-        let field = syn::parse_quote!(value: Option<mod1::mod2::u32>);
+    fn it_should_build_parser_for_option_option_type() {
+        let field = syn::parse_quote!(value: Option<Option<u32>>);
         assert_eq!(
-            quote!(value: __args.try_get_one("value")?).to_string(),
+            quote!(value:
+                if __args.contains("value") {
+                    Some(
+                        __args.try_get_one::<u32>("value").map(Option::flatten)?
+                    )
+                } else {
+                    None
+                }
+            )
+            .to_string(),
+            build_arg_parser(&field).unwrap().to_string()
+        );
+    }
+
+    #[test]
+    fn it_should_build_parser_for_option_vec_type() {
+        let field = syn::parse_quote!(value: Option<Vec<u32>>);
+        assert_eq!(
+            quote!(value:
+                if __args.contains("value") {
+                    Some(
+                        __args.try_get_many::<Vec<_, 8>, u32>("value")
+                            .map(Option::unwrap)
+                            .and_then(noshell::parser::utils::check_vec_is_missing)?
+                    )
+                } else {
+                    None
+                }
+            )
+            .to_string(),
+            build_arg_parser(&field).unwrap().to_string()
+        );
+    }
+
+    #[test]
+    fn it_should_build_parser_for_vec_type() {
+        let field = syn::parse_quote!(value: Vec<u32, 8>);
+        assert_eq!(
+            quote!(
+                value: __args.try_get_many::<Vec<_, 8>, u32>("value")
+                    .and_then(noshell::parser::utils::check_arg_is_missing)
+                    .map(Option::unwrap)
+                    .and_then(noshell::parser::utils::check_vec_is_missing)?
+            )
+            .to_string(),
             build_arg_parser(&field).unwrap().to_string()
         );
     }
@@ -153,8 +244,8 @@ mod tests {
     fn it_should_build_struct_derive() {
         let derive = syn::parse_quote! {
             struct MyArgs {
-                field1: u32,
-                field2: Option<u32>,
+                value1: u32,
+                value2: u32,
             }
         };
 
@@ -168,9 +259,17 @@ mod tests {
                         let __args: ParsedArgs<'_, 64> = noshell::parser::ParsedArgs::parse(__tokens);
 
                         Ok(MyArgs {
-                            field1: __args.try_get_one("field1")?
-                                .ok_or_else(|| noshell::parser::Error::MissingArgument)?,
-                            field2: __args.try_get_one("field2")?
+                            value1: __args.try_get_one::<u32>("value1")
+                                .and_then(noshell::parser::utils::check_arg_is_missing)
+                                .map(Option::unwrap)
+                                .and_then(noshell::parser::utils::check_value_is_missing)
+                                .map(Option::unwrap)?,
+                                
+                            value2: __args.try_get_one::<u32>("value2")
+                                .and_then(noshell::parser::utils::check_arg_is_missing)
+                                .map(Option::unwrap)
+                                .and_then(noshell::parser::utils::check_value_is_missing)
+                                .map(Option::unwrap)?
                         })
                     }
                 }

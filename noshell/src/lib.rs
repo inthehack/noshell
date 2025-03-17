@@ -19,37 +19,102 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use googletest::prelude::{assert_that, eq, matches_pattern};
+    use googletest::prelude::{assert_that, eq};
 
     use crate as noshell;
 
-    #[derive(Debug, noshell::Parser)]
-    struct MyArgs {
-        id: u32,
-        age: Option<u8>,
+    #[test]
+    fn it_should_parse_args_with_simple_type() {
+        #[derive(Debug, noshell::Parser)]
+        struct MyArgs {
+            value: u32,
+        }
+
+        let argv = &["--value", "233"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(true));
+
+        let args = res.unwrap();
+        assert_that!(args.value, eq(233));
     }
 
     #[test]
-    fn it_should_parse_args_with_empty_option() {
-        let argv = &["--id", "233"];
+    fn it_should_parse_args_with_option_type() {
+        #[derive(Debug, noshell::Parser)]
+        struct MyArgs {
+            value: Option<u32>,
+        }
+
+        let argv = &[];
         let res = MyArgs::parse(argv);
 
-        assert_that!(res, matches_pattern!(Ok(_)));
+        assert_that!(res.is_ok(), eq(true));
 
         let args = res.unwrap();
-        assert_that!(args.id, eq(233));
-        assert_that!(args.age, eq(None));
+        assert_that!(args.value, eq(None));
+
+        let argv = &["--value", "233"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(true));
+
+        let args = res.unwrap();
+        assert_that!(args.value, eq(Some(233)));
     }
 
     #[test]
-    fn it_should_parse_args_with_non_empty_option() {
-        let argv = &["--id", "233", "--age", "32"];
+    fn it_should_parse_args_with_option_option_type() {
+        #[derive(Debug, noshell::Parser)]
+        struct MyArgs {
+            value: Option<Option<u32>>,
+        }
+
+        let argv = &[];
         let res = MyArgs::parse(argv);
 
-        assert_that!(res, matches_pattern!(Ok(_)));
+        assert_that!(res.is_ok(), eq(true));
 
         let args = res.unwrap();
-        assert_that!(args.id, eq(233));
-        assert_that!(args.age, eq(Some(32)));
+        assert_that!(args.value, eq(None));
+
+        let argv = &["--value"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(true));
+
+        let args = res.unwrap();
+        assert_that!(args.value, eq(Some(None)));
+    }
+
+    #[test]
+    fn it_should_parse_args_with_option_vec_type() {
+        use heapless::Vec;
+
+        #[derive(Debug, noshell::Parser)]
+        struct MyArgs {
+            value: Option<Vec<u32, 8>>,
+        }
+
+        // No argument.
+        let argv = &[];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(true));
+
+        let args = res.unwrap();
+        assert_that!(args.value.is_none(), eq(true));
+
+        // Argument without value.
+        let argv = &["--value"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(false));
+
+        // Argument with single value.
+        let argv = &["--value", "23"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(true));
     }
 }

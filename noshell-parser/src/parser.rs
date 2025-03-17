@@ -65,7 +65,7 @@ impl<'a, const SIZE: usize> ParsedArgs<'a, SIZE> {
     }
 
     /// Get one value for the given flag identifier.
-    pub fn get_one<T>(&self, id: &str) -> Option<T>
+    pub fn get_one<T>(&self, id: &str) -> Option<Option<T>>
     where
         T: FromStr,
     {
@@ -82,7 +82,7 @@ impl<'a, const SIZE: usize> ParsedArgs<'a, SIZE> {
     }
 
     /// Try to get and parse the argument value if any.
-    pub fn try_get_one<T>(&self, id: &str) -> Result<Option<T>, Error>
+    pub fn try_get_one<T>(&self, id: &str) -> Result<Option<Option<T>>, Error>
     where
         T: FromStr,
     {
@@ -93,7 +93,7 @@ impl<'a, const SIZE: usize> ParsedArgs<'a, SIZE> {
                 value
             } else {
                 // The argument has no value.
-                return Err(Error::InvalidArgument);
+                return Ok(Some(None));
             };
 
             if iter.next().is_some() {
@@ -101,13 +101,16 @@ impl<'a, const SIZE: usize> ParsedArgs<'a, SIZE> {
                 return Err(Error::InvalidArgument);
             }
 
-            // The value cannot be parsed to the target type `T`.
             return value
                 .parse::<T>()
+                // The argument is present and has a value (i.e. Some(Some(_))).
                 .map(Some)
+                .map(Some)
+                // The value cannot be parsed to the target type `T`.
                 .map_err(|_| Error::InvalidArgument);
         }
 
+        // The argument has not been found.
         Ok(None)
     }
 
@@ -141,13 +144,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_should_parse_valid_value() {
-        let tokens = Tokens::new(&["-v", "42"]);
+    fn it_should_parse_missing_arg() {
+        let tokens = Tokens::new(&["-v"]);
         let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
-        assert_that!(
-            args.try_get_one::<u32>("v"),
-            matches_pattern!(&Ok(Some(42)))
-        );
+        assert_that!(args.try_get_one::<u32>("v"), eq(&Ok(Some(None))));
     }
 
     #[test]
@@ -161,31 +161,12 @@ mod tests {
     }
 
     #[test]
-    fn it_should_parse_missing_arg() {
-        let tokens = Tokens::new(&["-v"]);
+    fn it_should_parse_valid_value() {
+        let tokens = Tokens::new(&["-v", "42"]);
         let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
         assert_that!(
             args.try_get_one::<u32>("v"),
-            eq(&Err(Error::InvalidArgument))
+            matches_pattern!(&Ok(Some(Some(42))))
         );
-    }
-
-    #[test]
-    fn it_should_parse_enabled_bool_arg() {
-        let tokens = Tokens::new(&["-v"]);
-        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
-        assert_that!(args.contains("v"), eq(true));
-        assert_that!(
-            args.try_get_one::<bool>("v"),
-            eq(&Err(Error::InvalidArgument))
-        );
-    }
-
-    #[test]
-    fn it_should_parse_enabled_bool_arg_with_value() {
-        let tokens = Tokens::new(&["-v", "true"]);
-        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
-        assert_that!(args.contains("v"), eq(true));
-        assert_that!(args.try_get_one::<bool>("v"), eq(&Ok(Some(true))));
     }
 }

@@ -24,3 +24,4 @@ defmt = ["dep:defmt", "noshell-parser/defmt"]
 
 [dev-dependencies]
 googletest.workspace = true
+heapless = "0.8.0"

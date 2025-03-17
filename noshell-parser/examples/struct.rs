@@ -17,8 +17,16 @@ fn main() {
         field1: parsed
             .try_get_one("field1")
             .expect("must be parsed")
-            .expect("must be present"),
-        field2: parsed.try_get_one("field2").expect("must be parsed"),
+            .expect("must be present")
+            .expect("must have a value"),
+
+        field2: parsed
+            .try_get_one::<u32>("field2")
+            .expect("must be parsed")
+            .map(|v| {
+                v.ok_or(noshell_parser::Error::MissingArgument)
+                    .expect("must have a value")
+            }),
     };
 
     if 42 != args.field1 {
