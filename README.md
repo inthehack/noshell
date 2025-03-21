@@ -67,4 +67,4 @@ additional terms or conditions.
 # Credits
 
 I would like to give a big thank to the creator and contributors of the crate
-`[clap](https://github.com/clap-rs/clap)`, which I draw a lot of inspiration from.
+[`clap`](https://github.com/clap-rs/clap), which I draw a lot of inspiration from.
