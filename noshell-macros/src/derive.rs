@@ -1,8 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
 use syn::ext::IdentExt;
-use syn::{Data, DataStruct, DeriveInput, Field, Fields, FieldsNamed, spanned::Spanned};
+use syn::{Data, DataStruct, DeriveInput, Expr, ExprLit, Field, Fields, FieldsNamed, Lit, spanned::Spanned};
 
+use crate::attr::{Attr, AttrKind, AttrName, AttrValue};
 use crate::helpers::{error, token_stream_with_error};
 use crate::ty::{Ty, get_inner_ty};
 
@@ -21,6 +22,8 @@ pub fn run(item: TokenStream) -> TokenStream {
     })
 }
 
+const PARSER_ARG_COUNT_MAX: usize = 16;
+
 pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
     let ident = &input.ident;
 
@@ -31,6 +34,21 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
         }) => {
             let fields = collect_arg_fields(fields)?;
             let init = build_arg_parsers(&fields)?;
+            let attrs = Attr::parse_all(&input.attrs)?;
+
+            let limit = attrs.iter()
+                .find(|x| x.kind == AttrKind::NoShell && x.name == Some(AttrName::Limit))
+                .and_then(|x|
+                    match &x.value {
+                        Some(AttrValue::Expr(Expr::Lit(ExprLit {
+                            lit: Lit::Int(x),
+                            ..
+                        }))) => x.base10_parse().ok(),
+
+                        _ => None,
+                    }
+                )
+                .unwrap_or(PARSER_ARG_COUNT_MAX);
 
             Ok(quote! {
                 impl #ident {
@@ -38,7 +56,7 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
                         use noshell::parser::ParsedArgs;
 
                         let __tokens = noshell::parser::Tokens::new(__argv);
-                        let __args: ParsedArgs<'_, 64> = noshell::parser::ParsedArgs::parse(__tokens);
+                        let __args: ParsedArgs<'_, #limit> = noshell::parser::ParsedArgs::parse(__tokens);
 
                         Ok(#ident #init)
                     }
@@ -256,7 +274,7 @@ mod tests {
                         use noshell::parser::ParsedArgs;
 
                         let __tokens = noshell::parser::Tokens::new(__argv);
-                        let __args: ParsedArgs<'_, 64> = noshell::parser::ParsedArgs::parse(__tokens);
+                        let __args: ParsedArgs<'_, 16usize> = noshell::parser::ParsedArgs::parse(__tokens);
 
                         Ok(MyArgs {
                             value1: __args.try_get_one::<u32>("value1")
