@@ -41,13 +41,13 @@ impl Token<'_> {
     /// Evaluate if the token string is a short flag.
     #[inline(always)]
     pub fn is_short_flag(input: &str) -> bool {
-        input.starts_with('-') && !Self::is_number(input)
+        input.starts_with('-') && input.len() > 1 && !Self::is_number(input)
     }
 
     /// Evaluate if the token string is a long flag.
     #[inline(always)]
     pub fn is_long_flag(input: &str) -> bool {
-        input.starts_with("--")
+        input.starts_with("--") && input.len() > 2
     }
 
     /// Evaluate if the token string is a flag.
