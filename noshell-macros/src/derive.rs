@@ -22,6 +22,7 @@ pub fn run(item: TokenStream) -> TokenStream {
     })
 }
 
+// This is the default value.
 const PARSER_ARG_COUNT_MAX: usize = 16;
 
 pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
@@ -34,18 +35,17 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
         }) => {
             let fields = collect_arg_fields(fields)?;
             let init = build_arg_parsers(&fields)?;
+
             let attrs = Attr::parse_all(&input.attrs)?;
 
-            let limit = attrs.iter()
-                .find(|x| x.kind == AttrKind::NoShell && x.name == Some(AttrName::Limit))
-                .and_then(|x|
-                    match &x.value {
-                        Some(AttrValue::Expr(Expr::Lit(ExprLit {
-                            lit: Lit::Int(x),
-                            ..
-                        }))) => x.base10_parse().ok(),
-
-                        _ => None,
+            let limit = parse_attr_of_expr_lit_with(
+                    &attrs,
+                    AttrKind::NoShell,
+                    AttrName::Limit,
+                    |x| if let Lit::Int(val) = x {
+                        val.base10_parse().ok()
+                    } else {
+                        None
                     }
                 )
                 .unwrap_or(PARSER_ARG_COUNT_MAX);
@@ -96,8 +96,7 @@ fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
 
     let args = format_ident!("__args");
     let try_get_one = quote_spanned!(inner_ty.span()=> try_get_one::<#inner_ty>);
-    // FIXME: can use a variable `heapless::Vec` size.
-    let try_get_many = quote_spanned!(inner_ty.span()=> try_get_many::<Vec<_, 8>, #inner_ty>);
+    let try_get_many = quote_spanned!(inner_ty.span()=> try_get_many::<_, #inner_ty>);
 
     let ident = field.ident.clone().unwrap();
     let id = ident.unraw().to_string();
@@ -162,6 +161,24 @@ fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
     Ok(quote_spanned! { field.span()=>
         #ident: #value
     })
+}
+
+fn parse_attr_of_expr_lit_with<T, F>(attrs: &[Attr], kind: AttrKind, name: AttrName, parser: F) -> Option<T>
+where
+    F: FnOnce(&Lit) -> Option<T>,
+{
+    attrs.iter()
+        .find(|x| x.kind == kind && x.name == Some(name))
+        .and_then(|x|
+            match &x.value {
+                Some(AttrValue::Expr(Expr::Lit(ExprLit {
+                    lit,
+                    ..
+                }))) => parser(lit),
+
+                _ => None,
+            }
+        )
 }
 
 #[cfg(test)]
@@ -230,7 +247,7 @@ mod tests {
             quote!(value:
                 if __args.contains("value") {
                     Some(
-                        __args.try_get_many::<Vec<_, 8>, u32>("value")
+                        __args.try_get_many::<_, u32>("value")
                             .map(Option::unwrap)
                             .and_then(noshell::parser::utils::check_vec_is_missing)?
                     )
@@ -248,7 +265,7 @@ mod tests {
         let field = syn::parse_quote!(value: Vec<u32, 8>);
         assert_eq!(
             quote!(
-                value: __args.try_get_many::<Vec<_, 8>, u32>("value")
+                value: __args.try_get_many::<_, u32>("value")
                     .and_then(noshell::parser::utils::check_arg_is_missing)
                     .map(Option::unwrap)
                     .and_then(noshell::parser::utils::check_vec_is_missing)?
