@@ -1,6 +1,8 @@
 //! Atrtibute helpers.
 
-use proc_macro2::Span;
+// FIXME: use this until the feature is fully implemented.
+#![allow(dead_code)]
+
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Attribute, Expr, Ident, LitStr, Token};
@@ -48,9 +50,6 @@ pub struct Attr {
 
     /// The attribute identifier.
     pub id: Ident,
-
-    /// The attribute parsing span.
-    pub span: Span,
 
     /// The attribute optional name.
     pub name: Option<AttrName>,
@@ -119,7 +118,6 @@ impl Parse for Attr {
         let attr = Attr {
             kind: AttrKind::NoShell,
             id: id.clone(),
-            span: id.span(),
             name,
             value,
         };
