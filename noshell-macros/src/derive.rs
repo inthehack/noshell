@@ -39,16 +39,7 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
             let init = build_arg_parsers(&fields)?;
 
             let attrs = Attr::parse_all(&input.attrs)?;
-
-            let limit =
-                parse_attr_of_expr_lit_with(&attrs, AttrKind::NoShell, AttrName::Limit, |x| {
-                    if let Lit::Int(val) = x {
-                        val.base10_parse().ok()
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(PARSER_ARG_COUNT_MAX);
+            let limit = parse_attr_noshell_arg_count_limit(&attrs)?.unwrap_or(PARSER_ARG_COUNT_MAX);
 
             Ok(quote! {
                 impl #ident {
@@ -74,6 +65,10 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
 }
 
 fn collect_arg_fields(fields: &FieldsNamed) -> Result<Vec<&Field>, syn::Error> {
+    // TODO: collect short and long flags.
+
+    // TODO: check for flag duplicates.
+
     Ok(fields.named.iter().collect())
 }
 
@@ -163,23 +158,55 @@ fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
     })
 }
 
-fn parse_attr_of_expr_lit_with<T, F>(
+fn parse_attr_noshell_arg_count_limit(attrs: &[Attr]) -> Result<Option<usize>, syn::Error> {
+    parse_attr_of_expr_lit_with(attrs, AttrKind::NoShell, AttrName::Limit, |attr, lit| {
+        if let Lit::Int(val) = lit {
+            val.base10_parse().map_err(|_| {
+                syn::Error::new(
+                    attr.id.span(),
+                    format!("cannot convert `{}` into usize", val),
+                )
+            })
+        } else {
+            Err(syn::Error::new(
+                attr.id.span(),
+                "expected arg `limit` as a literal integer",
+            ))
+        }
+    })
+}
+
+fn find_attr_with<P>(attrs: &[Attr], mut predicate: P) -> Option<&Attr>
+where
+    P: FnMut(&Attr) -> bool,
+{
+    attrs.iter().find(|&x| predicate(x))
+}
+
+fn parse_attr_of_expr_lit_with<T, P>(
     attrs: &[Attr],
     kind: AttrKind,
     name: AttrName,
-    parser: F,
-) -> Option<T>
+    mut parser: P,
+) -> Result<Option<T>, syn::Error>
 where
-    F: FnOnce(&Lit) -> Option<T>,
+    P: FnMut(&Attr, &Lit) -> Result<T, syn::Error>,
 {
-    attrs
-        .iter()
-        .find(|x| x.kind == kind && x.name == Some(name))
-        .and_then(|x| match &x.value {
-            Some(AttrValue::Expr(Expr::Lit(ExprLit { lit, .. }))) => parser(lit),
+    if let Some(attr) = find_attr_with(attrs, |x| x.kind == kind && x.name == Some(name)) {
+        let lit = match &attr.value {
+            Some(AttrValue::Expr(Expr::Lit(ExprLit { lit, .. }))) => lit,
+            _ => {
+                return Err(syn::Error::new(
+                    attr.id.span(),
+                    "expected arg `limit` as literal integer",
+                ));
+            }
+        };
 
-            _ => None,
-        })
+        return parser(attr, lit).map(|x| Some(x));
+    }
+
+    Ok(None)
 }
 
 #[cfg(test)]
