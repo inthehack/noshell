@@ -116,5 +116,109 @@ mod tests {
         let res = MyArgs::parse(argv);
 
         assert_that!(res.is_ok(), eq(true));
+        let args = res.unwrap();
+
+        assert_that!(args.value.is_some(), eq(true));
+        let vals = args.value.unwrap();
+
+        assert_that!(vals.is_empty(), eq(false));
+        assert_that!(vals.first().unwrap(), eq(&23));
+
+        // Argument with multiple values.
+        let argv = &["--value", "23", "42", "72"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(true));
+        let args = res.unwrap();
+
+        assert_that!(args.value.is_some(), eq(true));
+        let vals = args.value.unwrap();
+
+        assert_that!(vals.is_empty(), eq(false));
+        let mut iter = vals.iter();
+
+        assert_that!(iter.next().unwrap(), eq(&23));
+        assert_that!(iter.next().unwrap(), eq(&42));
+        assert_that!(iter.next().unwrap(), eq(&72));
+        assert_that!(iter.next(), eq(None));
+    }
+
+    #[test]
+    #[should_panic]
+    fn it_should_panic_at_parsing_args_with_option_vec_type() {
+        use heapless::Vec;
+
+        #[derive(Debug, noshell::Parser)]
+        struct MyArgs {
+            #[allow(unused)]
+            value: Option<Vec<u32, 4>>,
+        }
+
+        // Argument with too much values.
+        let argv = &["--value", "1", "2", "3", "4", "5"];
+        let _ = MyArgs::parse(argv);
+    }
+
+    #[test]
+    fn it_should_parse_args_with_vec_type() {
+        use heapless::Vec;
+
+        #[derive(Debug, noshell::Parser)]
+        struct MyArgs {
+            value: Vec<u32, 8>,
+        }
+
+        // No argument.
+        let argv = &[];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(false));
+
+        // Argument without value.
+        let argv = &["--value"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(false));
+
+        // Argument with single value.
+        let argv = &["--value", "23"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(true));
+        let args = res.unwrap();
+
+        assert_that!(args.value.is_empty(), eq(false));
+        assert_that!(args.value.first().unwrap(), eq(&23));
+
+        // Argument with multiple values.
+        let argv = &["--value", "23", "42", "72"];
+        let res = MyArgs::parse(argv);
+
+        assert_that!(res.is_ok(), eq(true));
+        let args = res.unwrap();
+
+        assert_that!(args.value.is_empty(), eq(false));
+        let mut iter = args.value.iter();
+
+        assert_that!(iter.next().unwrap(), eq(&23));
+        assert_that!(iter.next().unwrap(), eq(&42));
+        assert_that!(iter.next().unwrap(), eq(&72));
+        assert_that!(iter.next(), eq(None));
+    }
+
+    #[test]
+    #[should_panic]
+    fn it_should_panic_at_parsing_args_with_vec_type() {
+        use heapless::Vec;
+
+        #[derive(Debug, noshell::Parser)]
+        struct MyArgs {
+            #[allow(unused)]
+            value: Vec<u32, 4>,
+        }
+
+        // Argument with too much values.
+        let argv = &["--value", "1", "2", "3", "4", "5"];
+        let _ = MyArgs::parse(argv);
     }
 }
