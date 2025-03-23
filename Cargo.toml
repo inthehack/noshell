@@ -1,7 +1,7 @@
 [workspace.package]
 version = "0.1.1"
 edition = "2024"
-authors = [ "Julien Peeters <inthehack@mountainhacks.org>" ]
+authors = ["Julien Peeters <inthehack@mountainhacks.org>"]
 license = "Apache-2.0 OR MIT"
 homepage = "https://github.com/inthehack/noshell"
 repository = "https://github.com/inthehack/noshell"
@@ -10,7 +10,7 @@ readme = "README.md"
 
 [workspace]
 resolver = "2"
-members = [ "noshell-parser", "noshell-macros" , "noshell" ]
+members = ["noshell-parser", "noshell-macros", "noshell"]
 
 [workspace.dependencies]
 defmt = { version = "0.3.10", default-features = false }

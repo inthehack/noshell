@@ -1,7 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
 use syn::ext::IdentExt;
-use syn::{Data, DataStruct, DeriveInput, Expr, ExprLit, Field, Fields, FieldsNamed, Lit, spanned::Spanned};
+use syn::{
+    Data, DataStruct, DeriveInput, Expr, ExprLit, Field, Fields, FieldsNamed, Lit, spanned::Spanned,
+};
 
 use crate::attr::{Attr, AttrKind, AttrName, AttrValue};
 use crate::helpers::{error, token_stream_with_error};
@@ -38,16 +40,14 @@ pub fn run_derive(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
 
             let attrs = Attr::parse_all(&input.attrs)?;
 
-            let limit = parse_attr_of_expr_lit_with(
-                    &attrs,
-                    AttrKind::NoShell,
-                    AttrName::Limit,
-                    |x| if let Lit::Int(val) = x {
+            let limit =
+                parse_attr_of_expr_lit_with(&attrs, AttrKind::NoShell, AttrName::Limit, |x| {
+                    if let Lit::Int(val) = x {
                         val.base10_parse().ok()
                     } else {
                         None
                     }
-                )
+                })
                 .unwrap_or(PARSER_ARG_COUNT_MAX);
 
             Ok(quote! {
@@ -163,22 +163,23 @@ fn build_arg_parser(field: &Field) -> Result<TokenStream, syn::Error> {
     })
 }
 
-fn parse_attr_of_expr_lit_with<T, F>(attrs: &[Attr], kind: AttrKind, name: AttrName, parser: F) -> Option<T>
+fn parse_attr_of_expr_lit_with<T, F>(
+    attrs: &[Attr],
+    kind: AttrKind,
+    name: AttrName,
+    parser: F,
+) -> Option<T>
 where
     F: FnOnce(&Lit) -> Option<T>,
 {
-    attrs.iter()
+    attrs
+        .iter()
         .find(|x| x.kind == kind && x.name == Some(name))
-        .and_then(|x|
-            match &x.value {
-                Some(AttrValue::Expr(Expr::Lit(ExprLit {
-                    lit,
-                    ..
-                }))) => parser(lit),
+        .and_then(|x| match &x.value {
+            Some(AttrValue::Expr(Expr::Lit(ExprLit { lit, .. }))) => parser(lit),
 
-                _ => None,
-            }
-        )
+            _ => None,
+        })
 }
 
 #[cfg(test)]
@@ -299,7 +300,7 @@ mod tests {
                                 .map(Option::unwrap)
                                 .and_then(noshell::parser::utils::check_value_is_missing)
                                 .map(Option::unwrap)?,
-                                
+
                             value2: __args.try_get_one::<u32>("value2")
                                 .and_then(noshell::parser::utils::check_arg_is_missing)
                                 .map(Option::unwrap)

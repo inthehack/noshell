@@ -62,6 +62,7 @@
             programs.mdformat.enable = true;
             programs.nixfmt.enable = true;
             programs.rustfmt.enable = true;
+            programs.rustfmt.edition = "2024";
             programs.taplo.enable = true;
 
             # Formatter settings.
@@ -77,7 +78,11 @@
             # Additional environment variables here (e.g. CUSTOM_VAR = ...).
 
             # Extra input packages.
-            packages = with pkgs; [ bacon just cargo-nextest ];
+            packages = with pkgs; [
+              bacon
+              just
+              cargo-nextest
+            ];
           };
         };
 
