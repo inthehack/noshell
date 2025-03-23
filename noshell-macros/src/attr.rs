@@ -3,6 +3,7 @@
 // FIXME: use this until the feature is fully implemented.
 #![allow(dead_code)]
 
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Attribute, Expr, Ident, LitStr, Token};
@@ -88,7 +89,7 @@ impl Attr {
 impl Parse for Attr {
     fn parse(input: ParseStream<'_>) -> Result<Self, syn::Error> {
         let id: Ident = input.parse()?;
-        let name = id.to_string();
+        let name = id.unraw().to_string();
 
         let name = match name.as_str() {
             "limit" => Some(AttrName::Limit),
