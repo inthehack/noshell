@@ -1,6 +1,6 @@
 use core::panic;
 
-use noshell_parser::{ParsedArgs, Tokens};
+use noshell_parser::{ParsedArgs, Tokens, lexer::Flag};
 
 struct MyArgs {
     field1: u32,
@@ -8,10 +8,11 @@ struct MyArgs {
 }
 
 fn main() {
+    let ids = &[(Flag::Long("field1"), "field1")];
     let argv = &["--field1", "42"];
 
     let tokens = Tokens::new(argv);
-    let parsed: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
+    let parsed: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens, ids);
 
     let args = MyArgs {
         field1: parsed

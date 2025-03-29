@@ -3,11 +3,11 @@
 use std::collections::HashSet;
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, quote_spanned};
-use syn::LitStr;
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::ext::IdentExt;
 use syn::{
-    Data, DataStruct, DeriveInput, Expr, ExprLit, Fields, FieldsNamed, Lit, spanned::Spanned,
+    Data, DataStruct, DeriveInput, Expr, ExprLit, Fields, FieldsNamed, Lit, LitStr,
+    spanned::Spanned,
 };
 
 use crate::arg::MetaArg;
@@ -44,7 +44,7 @@ pub fn try_run(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
             let args = collect_args_meta(fields)?;
             let init = build_args_init(&args)?;
 
-            check_args_duplicate_flags(&args)?;
+            let (ids_ty, ids) = parse_and_build_arg_ids(&args)?;
 
             let attrs = Attr::parse_all(&input.attrs)?;
             let limit = get_noshell_attr_limit_arg_value(&attrs)?.unwrap_or(PARSER_ARG_COUNT_MAX);
@@ -54,10 +54,16 @@ pub fn try_run(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
                     pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
                         use noshell::parser::ParsedArgs;
 
+                        let __ids = Self::ids();
                         let __tokens = noshell::parser::Tokens::new(__argv);
-                        let __args: ParsedArgs<'_, #limit> = noshell::parser::ParsedArgs::parse(__tokens);
+                        let __args: ParsedArgs<'_, #limit> = noshell::parser::ParsedArgs::parse(__tokens, __ids);
 
                         Ok(#ident #init)
+                    }
+
+                    pub fn ids() -> &'static [(noshell::parser::lexer::Flag<'static>, &'static str)] {
+                        static IDS: #ids_ty = #ids;
+                        &IDS
                     }
                 }
             })
@@ -178,28 +184,28 @@ where
     attrs.iter().find(|&x| predicate(x))
 }
 
-fn parse_attr_of_literal_string_with<T, P>(attr: &Attr, parser: P) -> Result<T, syn::Error>
+fn parse_attr_of_literal_string_with<T, P>(attr: &Attr, parser: P) -> Result<Option<T>, syn::Error>
 where
     P: FnOnce(&LitStr) -> Result<T, syn::Error>,
 {
     let lit = match &attr.value {
         Some(AttrValue::LitStr(lit)) => lit,
-        _ => return Err(syn::Error::new(attr.id.span(), "expected a literal value")),
+        _ => return Ok(None),
     };
 
-    parser(lit)
+    parser(lit).map(Some)
 }
 
-fn parse_attr_of_literal_expr_with<T, P>(attr: &Attr, parser: P) -> Result<T, syn::Error>
+fn parse_attr_of_literal_expr_with<T, P>(attr: &Attr, parser: P) -> Result<Option<T>, syn::Error>
 where
     P: FnOnce(&Lit) -> Result<T, syn::Error>,
 {
     let lit = match &attr.value {
         Some(AttrValue::Expr(Expr::Lit(ExprLit { lit, .. }))) => lit,
-        _ => return Err(syn::Error::new(attr.id.span(), "expected a literal value")),
+        _ => return Ok(None),
     };
 
-    parser(lit)
+    parser(lit).map(Some)
 }
 
 fn parse_noshell_attr_limit_arg(attr: &Attr) -> Result<usize, syn::Error> {
@@ -214,6 +220,14 @@ fn parse_noshell_attr_limit_arg(attr: &Attr) -> Result<usize, syn::Error> {
             ))
         }
     })
+    .and_then(|x| {
+        x.ok_or_else(|| {
+            syn::Error::new(
+                attr.id.span(),
+                "missing value of limit in `noshell` attribute",
+            )
+        })
+    })
 }
 
 fn get_noshell_attr_limit_arg_value(attrs: &[Attr]) -> Result<Option<usize>, syn::Error> {
@@ -226,7 +240,7 @@ fn get_noshell_attr_limit_arg_value(attrs: &[Attr]) -> Result<Option<usize>, syn
     Ok(None)
 }
 
-fn parse_attr_arg_short_arg(attr: &Attr) -> Result<char, syn::Error> {
+fn parse_attr_arg_short_arg(attr: &Attr) -> Result<Option<char>, syn::Error> {
     parse_attr_of_literal_expr_with(attr, |lit| {
         if let Lit::Char(val) = lit {
             Ok(val.value())
@@ -239,15 +253,22 @@ fn parse_attr_arg_short_arg(attr: &Attr) -> Result<char, syn::Error> {
     })
 }
 
-fn parse_attr_arg_long_arg(attr: &Attr) -> Result<String, syn::Error> {
+fn parse_attr_arg_long_arg(attr: &Attr) -> Result<Option<String>, syn::Error> {
     parse_attr_of_literal_string_with(attr, |lit| Ok(lit.value()))
 }
 
-fn check_args_duplicate_flags(args: &[MetaArg]) -> Result<(), syn::Error> {
+fn parse_and_build_arg_ids(args: &[MetaArg]) -> Result<(TokenStream, TokenStream), syn::Error> {
+    let mut items = TokenStream::new();
+
     let mut short_keys: HashSet<char> = HashSet::new();
     let mut long_keys: HashSet<String> = HashSet::new();
 
+    let mut ids_size: usize = 0;
+
     for arg in args {
+        // The argument identifier.
+        let id = arg.id.unraw().to_string();
+
         // Check for short flags.
         let shorts = arg
             .attrs
@@ -256,13 +277,43 @@ fn check_args_duplicate_flags(args: &[MetaArg]) -> Result<(), syn::Error> {
             .map(|attr| Result::<_, syn::Error>::Ok((attr, parse_attr_arg_short_arg(attr)?)))
             .collect::<Result<Vec<_>, _>>()?;
 
-        for (attr, key) in shorts {
+        let mut errors = None;
+
+        for (i, (attr, key)) in shorts.iter().enumerate() {
+            // SAFETY: one can ensure that a field identifier has at least one character.
+            let key = key.unwrap_or_else(|| id.chars().next().unwrap());
+
             if !short_keys.insert(key) {
                 return Err(syn::Error::new(
                     attr.id.span(),
                     format!("short flag `{}` is already used elsewhere", key),
                 ));
             }
+
+            let flag = quote!(noshell::parser::lexer::Flag::Short(#key));
+            let pair = quote!( ( #flag, #id ), );
+            pair.to_tokens(&mut items);
+
+            if i > 0 {
+                if errors.is_none() {
+                    errors = Some(syn::Error::new(
+                        attr.id.span(),
+                        "must have at most one short flag",
+                    ));
+                }
+
+                errors.as_mut().unwrap().combine(syn::Error::new(
+                    attr.id.span(),
+                    "another short flag is defined here",
+                ));
+            }
+
+            // Add a short flag id.
+            ids_size += 1;
+        }
+
+        if let Some(err) = errors {
+            return Err(err);
         }
 
         // Check for long flags.
@@ -273,17 +324,64 @@ fn check_args_duplicate_flags(args: &[MetaArg]) -> Result<(), syn::Error> {
             .map(|attr| Result::<_, syn::Error>::Ok((attr, parse_attr_arg_long_arg(attr)?)))
             .collect::<Result<Vec<_>, _>>()?;
 
-        for (attr, key) in &longs {
+        let mut errors = None;
+
+        for (i, (attr, key)) in longs.iter().enumerate() {
+            // SAFETY: one can ensure that a field identifier has at least one character.
+            let key = key.as_ref().unwrap_or(&id);
+
             if !long_keys.insert(key.clone()) {
                 return Err(syn::Error::new(
                     attr.id.span(),
                     format!("long flag `{}` is already used elsewhere", key),
                 ));
             }
+
+            let flag = quote!(noshell::parser::lexer::Flag::Long(#key));
+            let pair = quote!( ( #flag, #id ), );
+            pair.to_tokens(&mut items);
+
+            if i > 0 {
+                if errors.is_none() {
+                    errors = Some(syn::Error::new(
+                        attr.id.span(),
+                        "must have at most one long flag",
+                    ));
+                }
+
+                errors.as_mut().unwrap().combine(syn::Error::new(
+                    attr.id.span(),
+                    "another long flag is defined here",
+                ));
+            }
+
+            // Add a long flag id.
+            ids_size += 1;
+        }
+
+        // If the argument has no defined short or long flag, add a long flag by default. This
+        // default long flag has the same value as the field.
+        if shorts.is_empty() && longs.is_empty() {
+            if !long_keys.insert(id.clone()) {
+                return Err(syn::Error::new(
+                    arg.id.span(),
+                    format!("long flag `{}` is already used elsewhere", id),
+                ));
+            }
+
+            let flag = quote!(noshell::parser::lexer::Flag::Long(#id));
+            let pair = quote!( ( #flag, #id ), );
+            pair.to_tokens(&mut items);
+
+            // Add a long flag id.
+            ids_size += 1;
         }
     }
 
-    Ok(())
+    let ids_ty = quote! { [(noshell::parser::lexer::Flag<'static>, &'static str); #ids_size] };
+    let ids = quote! { [ #items ] };
+
+    Ok((ids_ty, ids))
 }
 
 #[cfg(test)]
@@ -291,6 +389,146 @@ mod tests {
     use syn::Field;
 
     use super::*;
+
+    #[test]
+    fn it_should_build_id_lookup_table_with_no_attrs() -> anyhow::Result<()> {
+        let field: Field = syn::parse_quote! {
+            value: u32
+        };
+
+        let attrs = Attr::parse_all(&field.attrs)?;
+        assert_eq!(0, attrs.len());
+
+        let meta = MetaArg::new(&field, attrs);
+        let (ids_ty, ids) = parse_and_build_arg_ids(&[meta])?;
+
+        let expected_ty =
+            quote! { [(noshell::parser::lexer::Flag<'static>, &'static str); 1usize] };
+        assert_eq!(expected_ty.to_string(), ids_ty.to_string());
+
+        let expected = quote! { [(noshell::parser::lexer::Flag::Long("value"), "value"),] };
+        assert_eq!(expected.to_string(), ids.to_string());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_should_build_id_lookup_table_with_one_default_long_flag() -> anyhow::Result<()> {
+        let field: Field = syn::parse_quote! {
+            #[arg(long)]
+            value: u32
+        };
+
+        let attrs = Attr::parse_all(&field.attrs)?;
+        assert_eq!(1, attrs.len());
+
+        let meta = MetaArg::new(&field, attrs);
+        let (ids_ty, ids) = parse_and_build_arg_ids(&[meta])?;
+
+        let expected_ty =
+            quote! { [(noshell::parser::lexer::Flag<'static>, &'static str); 1usize] };
+        assert_eq!(expected_ty.to_string(), ids_ty.to_string());
+
+        let expected = quote! { [(noshell::parser::lexer::Flag::Long("value"), "value"),] };
+        assert_eq!(expected.to_string(), ids.to_string());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_should_build_id_lookup_table_with_one_long_flag() -> anyhow::Result<()> {
+        let field: Field = syn::parse_quote! {
+            #[arg(long = "other")]
+            value: u32
+        };
+
+        let attrs = Attr::parse_all(&field.attrs)?;
+        assert_eq!(1, attrs.len());
+
+        let meta = MetaArg::new(&field, attrs);
+        let (ids_ty, ids) = parse_and_build_arg_ids(&[meta])?;
+
+        let expected_ty =
+            quote! { [(noshell::parser::lexer::Flag<'static>, &'static str); 1usize] };
+        assert_eq!(expected_ty.to_string(), ids_ty.to_string());
+
+        let expected = quote! { [(noshell::parser::lexer::Flag::Long("other"), "value"),] };
+        assert_eq!(expected.to_string(), ids.to_string());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_should_build_id_lookup_table_with_one_default_short_flag() -> anyhow::Result<()> {
+        let field: Field = syn::parse_quote! {
+            #[arg(short)]
+            value: u32
+        };
+
+        let attrs = Attr::parse_all(&field.attrs)?;
+        assert_eq!(1, attrs.len());
+
+        let meta = MetaArg::new(&field, attrs);
+        let (ids_ty, ids) = parse_and_build_arg_ids(&[meta])?;
+
+        let expected_ty =
+            quote! { [(noshell::parser::lexer::Flag<'static>, &'static str); 1usize] };
+        assert_eq!(expected_ty.to_string(), ids_ty.to_string());
+
+        let expected = quote! { [(noshell::parser::lexer::Flag::Short('v'), "value"),] };
+        assert_eq!(expected.to_string(), ids.to_string());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_should_build_id_lookup_table_with_one_short_flag() -> anyhow::Result<()> {
+        let field: Field = syn::parse_quote! {
+            #[arg(short = 'd')]
+            value: u32
+        };
+
+        let attrs = Attr::parse_all(&field.attrs)?;
+        assert_eq!(1, attrs.len());
+
+        let meta = MetaArg::new(&field, attrs);
+        let (ids_ty, ids) = parse_and_build_arg_ids(&[meta])?;
+
+        let expected_ty =
+            quote! { [(noshell::parser::lexer::Flag<'static>, &'static str); 1usize] };
+        assert_eq!(expected_ty.to_string(), ids_ty.to_string());
+
+        let expected = quote! { [(noshell::parser::lexer::Flag::Short('d'), "value"),] };
+        assert_eq!(expected.to_string(), ids.to_string());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_should_build_id_lookup_table_with_one_short_and_one_long_flags() -> anyhow::Result<()> {
+        let field: Field = syn::parse_quote! {
+            #[arg(short, long)]
+            value: u32
+        };
+
+        let attrs = Attr::parse_all(&field.attrs)?;
+        assert_eq!(2, attrs.len());
+
+        let meta = MetaArg::new(&field, attrs);
+        let (ids_ty, ids) = parse_and_build_arg_ids(&[meta])?;
+
+        let expected_ty =
+            quote! { [(noshell::parser::lexer::Flag<'static>, &'static str); 2usize] };
+        assert_eq!(expected_ty.to_string(), ids_ty.to_string());
+
+        let expected = quote! { [
+            (noshell::parser::lexer::Flag::Short('v'), "value"),
+            (noshell::parser::lexer::Flag::Long("value"), "value"),
+        ] };
+        assert_eq!(expected.to_string(), ids.to_string());
+
+        Ok(())
+    }
 
     #[test]
     fn it_should_build_parser_for_simple_type() -> anyhow::Result<()> {
@@ -423,8 +661,9 @@ mod tests {
                 pub fn parse<'a>(__argv: &'a [&'a str]) -> Result<Self, noshell::Error> {
                     use noshell::parser::ParsedArgs;
 
+                    let __ids = Self::ids();
                     let __tokens = noshell::parser::Tokens::new(__argv);
-                    let __args: ParsedArgs<'_, 16usize> = noshell::parser::ParsedArgs::parse(__tokens);
+                    let __args: ParsedArgs<'_, 16usize> = noshell::parser::ParsedArgs::parse(__tokens, __ids);
 
                     Ok(MyArgs {
                         value1: __args.try_get_one::<u32>("value1")
@@ -439,6 +678,14 @@ mod tests {
                             .and_then(noshell::parser::utils::check_value_is_missing)
                             .map(Option::unwrap)?
                     })
+                }
+
+                pub fn ids() -> &'static [(noshell::parser::lexer::Flag<'static>, &'static str)] {
+                    static IDS: [(noshell::parser::lexer::Flag<'static>, &'static str); 2usize] = [
+                        (noshell::parser::lexer::Flag::Long("value1"), "value1"),
+                        (noshell::parser::lexer::Flag::Long("value2"), "value2"),
+                    ];
+                    &IDS
                 }
             }
         };
