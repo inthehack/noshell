@@ -12,6 +12,10 @@ use crate::lexer::{Flag, IntoTokens, Token, Values};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// The argument is not defined.
+    #[error("undefined argument")]
+    UndefinedArgument,
+
     /// The argument value is invalid, meaning that it cannot be converted to the destination
     /// type. This could mean that there is a missing implementation for [`str::parse`] trait.
     #[error("invalid argument")]
@@ -32,24 +36,33 @@ pub enum Error {
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ParsedArgs<'a, const ARG_COUNT_MAX: usize = 8> {
-    args: Vec<(Flag<'a>, Values<'a>), ARG_COUNT_MAX>,
+    args: Vec<(&'a str, Values<'a>), ARG_COUNT_MAX>,
 }
 
 impl<'a, const SIZE: usize> ParsedArgs<'a, SIZE> {
     /// Parse the command line input from a token stream. The result is the set of found arguments.
-    pub fn parse(argv: impl IntoTokens<'a>) -> Self {
-        Self::try_parse(argv).expect("cannot parse arguments")
+    pub fn parse(argv: impl IntoTokens<'a>, ids: &[(Flag<'a>, &'a str)]) -> Self {
+        Self::try_parse(argv, ids).expect("cannot parse arguments")
     }
 
     /// Try to parse the input arguments.
-    pub fn try_parse(argv: impl IntoTokens<'a>) -> Result<Self, Error> {
+    pub fn try_parse(
+        argv: impl IntoTokens<'a>,
+        ids: &[(Flag<'a>, &'a str)],
+    ) -> Result<Self, Error> {
         let mut tokens = argv.into_tokens();
 
         let mut out = Self::default();
 
         while let Some(token) = tokens.next() {
-            if let Token::Flag(x) = &token {
-                if out.args.push((*x, tokens.values())).is_err() {
+            if let Token::Flag(f) = &token {
+                let id = if let Some((_, id)) = ids.iter().find(|x| f == &x.0) {
+                    id
+                } else {
+                    return Err(Error::UndefinedArgument);
+                };
+
+                if out.args.push((id, tokens.values())).is_err() {
                     return Err(Error::OutOfMemory);
                 }
             }
@@ -61,7 +74,7 @@ impl<'a, const SIZE: usize> ParsedArgs<'a, SIZE> {
     /// Check if there exists an argument with the given key (i.e. short or long flag).
     #[inline(always)]
     pub fn contains(&self, id: &str) -> bool {
-        self.args.iter().any(|x| x.0 == id)
+        self.args.iter().any(|x| id == x.0)
     }
 
     /// Get one value for the given flag identifier.
@@ -86,7 +99,7 @@ impl<'a, const SIZE: usize> ParsedArgs<'a, SIZE> {
     where
         T: FromStr,
     {
-        if let Some((_, values)) = self.args.iter().find(|x| x.0 == id) {
+        if let Some((_, values)) = self.args.iter().find(|x| id == x.0) {
             let mut iter = values.clone();
 
             let value = if let Some(value) = iter.next() {
@@ -145,27 +158,36 @@ mod tests {
 
     #[test]
     fn it_should_parse_missing_arg() {
+        let ids = &[(Flag::Short('v'), "verbose")];
         let tokens = Tokens::new(&["-v"]);
-        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
-        assert_that!(args.try_get_one::<u32>("v"), eq(&Ok(Some(None))));
+
+        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens, ids);
+
+        assert_that!(args.try_get_one::<u32>("verbose"), eq(&Ok(Some(None))));
     }
 
     #[test]
     fn it_should_parse_invalid_arg() {
+        let ids = &[(Flag::Short('v'), "verbose")];
         let tokens = Tokens::new(&["-v", "-42"]);
-        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
+
+        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens, ids);
+
         assert_that!(
-            args.try_get_one::<u32>("v"),
+            args.try_get_one::<u32>("verbose"),
             eq(&Err(Error::InvalidArgument))
         );
     }
 
     #[test]
     fn it_should_parse_valid_value() {
+        let ids = &[(Flag::Short('v'), "verbose")];
         let tokens = Tokens::new(&["-v", "42"]);
-        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens);
+
+        let args: ParsedArgs<'_, 1> = ParsedArgs::parse(tokens, ids);
+
         assert_that!(
-            args.try_get_one::<u32>("v"),
+            args.try_get_one::<u32>("verbose"),
             matches_pattern!(&Ok(Some(Some(42))))
         );
     }

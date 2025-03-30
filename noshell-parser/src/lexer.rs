@@ -11,11 +11,11 @@ pub enum Flag<'a> {
     Long(&'a str),
 }
 
-impl PartialEq<&str> for Flag<'_> {
-    fn eq(&self, other: &&str) -> bool {
-        match self {
+impl PartialEq<Flag<'_>> for &str {
+    fn eq(&self, other: &Flag<'_>) -> bool {
+        match other {
             Flag::Short(id) => {
-                if let Some(x) = other.chars().next() {
+                if let Some(x) = self.chars().next() {
                     *id == x
                 } else {
                     false
