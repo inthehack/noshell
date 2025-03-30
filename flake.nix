@@ -81,6 +81,7 @@
             packages = with pkgs; [
               bacon
               cargo-nextest
+              cargo-semver-checks
               gh
               just
               release-plz
