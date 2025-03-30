@@ -1,18 +1,28 @@
 [workspace]
+changelog_path = "CHANGELOG.md"
+changelog_update = false
+
+git_release_enable = false
+git_tag_enable = false
+
 publish_allow_dirty = false
 
 [[package]]
 name = "noshell"
+
 changelog_include = ["noshell-parser", "noshell-macros"]
-changelog_path = "CHANGELOG"
+changelog_update = true
+
+git_tag_name = "v{{ version }}"
+git_release_enable = true
+git_tag_enable = true
+
 version_group = "all"
 
 [[package]]
 name = "noshell-parser"
-changelog_update = false
 version_group = "all"
 
 [[package]]
 name = "noshell-macros"
-changelog_update = false
 version_group = "all"
