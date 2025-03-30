@@ -80,8 +80,10 @@
             # Extra input packages.
             packages = with pkgs; [
               bacon
-              just
               cargo-nextest
+              gh
+              just
+              release-plz
             ];
           };
         };
