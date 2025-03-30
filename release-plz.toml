@@ -1,0 +1,18 @@
+[workspace]
+publish_allow_dirty = false
+
+[[package]]
+name = "noshell"
+changelog_include = ["noshell-parser", "noshell-macros"]
+changelog_path = "CHANGELOG"
+version_group = "all"
+
+[[package]]
+name = "noshell-parser"
+changelog_update = false
+version_group = "all"
+
+[[package]]
+name = "noshell-macros"
+changelog_update = false
+version_group = "all"
