@@ -11,8 +11,8 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-noshell-macros = { path = "../noshell-macros", version = "0.1.1" }
-noshell-parser = { path = "../noshell-parser", version = "0.1.1" }
+noshell-macros = { path = "../noshell-macros", version = "0.2.0" }
+noshell-parser = { path = "../noshell-parser", version = "0.2.0" }
 
 defmt = { workspace = true, optional = true }
 thiserror.workspace = true
