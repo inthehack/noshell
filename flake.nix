@@ -28,7 +28,6 @@
             somePkgs:
             somePkgs.rust-bin.stable.latest.default.override {
               extensions = [
-                "clippy"
                 "llvm-tools"
                 "rust-analyzer"
                 "rust-src"
@@ -39,8 +38,13 @@
                 # Cortex M7, M7F.
                 "thumbv7em-none-eabi"
                 "thumbv7em-none-eabihf"
+
                 # Cortex M33.
                 "thumbv8m.main-none-eabihf"
+
+                # Host
+                "x86_64-unknown-linux-gnu"
+                "aarch64-unknown-linux-gnu"
               ];
             }
           );
@@ -62,7 +66,6 @@
             programs.mdformat.enable = true;
             programs.nixfmt.enable = true;
             programs.rustfmt.enable = true;
-            programs.rustfmt.edition = "2024";
             programs.taplo.enable = true;
 
             # Formatter settings.
@@ -79,9 +82,14 @@
 
             # Extra input packages.
             packages = with pkgs; [
+              # Build dependencies.
               bacon
+              cargo-deny
               cargo-nextest
               cargo-semver-checks
+              clippy
+
+              # Utilities.
               gh
               just
               release-plz
