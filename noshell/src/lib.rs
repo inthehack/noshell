@@ -19,7 +19,7 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use googletest::prelude::{assert_that, eq, matches_pattern};
+    use googletest::prelude::{assert_that, eq};
 
     use crate as noshell;
 
@@ -33,7 +33,7 @@ mod tests {
         let argv = &["--value", "233"];
         let res = MyArgs::parse(argv);
 
-        assert_that!(res, matches_pattern!(Ok(_)));
+        assert_that!(res.is_ok());
 
         let args = res.unwrap();
         assert_that!(args.value, eq(233));
