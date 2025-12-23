@@ -40,6 +40,7 @@ This crate is still a work in progress and is subject to huge changes in its API
 
 # Roadmap
 
+- \[ \] Add support for positional arguments.
 - \[ \] Add support for `noline` crate, waiting for a custom handling of terminal escape codes.
 - \[x\] Add more parsers for destination value like `Option<Vec<_>>` or `Vec<_>` for instance.
 - \[ \] Add automatic generation of help output.
