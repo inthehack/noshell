@@ -15,6 +15,50 @@ pub enum Error {
     /// An error comes from the parsing of arguments.
     #[error(transparent)]
     Parser(#[from] parser::Error),
+
+    /// Command not found.
+    #[error("command `{0}` not found")]
+    CommandNotFound(&'static str),
+}
+
+/// Command.
+pub struct Command {
+    runner: fn(&[&'static str]),
+}
+
+impl Command {
+    /// Run the command.
+    pub fn run(&self, args: &[&'static str]) {
+        (self.runner)(args)
+    }
+}
+
+/// Parse top-level commands.
+pub fn lookup(name: &'static str) -> Result<Command, Error> {
+    let entries: &[CommandEntry] = unsafe {
+        let start: *const CommandEntry = &NOSHELL_COMMAND_START as *const u32 as *const _;
+        let end: *const CommandEntry = &NOSHELL_COMMAND_END as *const u32 as *const _;
+        let len = end as usize - start as usize;
+
+        core::slice::from_raw_parts(start, len)
+    };
+
+    entries
+        .iter()
+        .find(|x| name == x.name)
+        .map(|x| Command { runner: x.runner })
+        .ok_or(Error::CommandNotFound(name))
+}
+
+#[repr(C)]
+struct CommandEntry {
+    name: &'static str,
+    runner: fn(&[&'static str]),
+}
+
+unsafe extern "C" {
+    static NOSHELL_COMMAND_START: u32;
+    static NOSHELL_COMMAND_END: u32;
 }
 
 #[cfg(test)]
@@ -33,7 +77,7 @@ mod tests {
         let argv = &["--value", "233"];
         let res = MyArgs::parse(argv);
 
-        assert_that!(res.is_ok());
+        assert_that!(res.is_ok(), eq(true));
 
         let args = res.unwrap();
         assert_that!(args.value, eq(233));
