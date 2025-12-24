@@ -10,18 +10,17 @@ repository.workspace = true
 description.workspace = true
 readme.workspace = true
 
+[features]
+default = []
+defmt = ["dep:defmt", "noshell-parser/defmt"]
+
 [dependencies]
+defmt = { workspace = true, optional = true }
+heapless = { workspace = true }
+thiserror = { workspace = true }
+
 noshell-macros = { path = "../noshell-macros", version = "0.2.0" }
 noshell-parser = { path = "../noshell-parser", version = "0.2.0" }
 
-defmt = { workspace = true, optional = true }
-thiserror.workspace = true
-
-[features]
-default = []
-
-defmt = ["dep:defmt", "noshell-parser/defmt"]
-
 [dev-dependencies]
-googletest.workspace = true
-heapless = "0.8.0"
+googletest = { workspace = true }

@@ -1,7 +1,9 @@
 //! noshell, a `no_std` argument parser and a shell for constrained systems.
 #![no_std]
+#![allow(async_fn_in_trait)]
 #![deny(missing_docs)]
 
+use heapless::Vec;
 pub use noshell_macros as macros;
 pub use noshell_parser as parser;
 
@@ -17,28 +19,32 @@ pub enum Error {
     Parser(#[from] parser::Error),
 
     /// Command not found.
-    #[error("command `{0}` not found")]
-    CommandNotFound(&'static str),
+    #[error("command not found")]
+    CommandNotFound,
+
+    /// Invalid utf8 string.
+    #[error("invalid utf8 string")]
+    Utf8,
 }
 
 /// Command.
 pub struct Command {
-    runner: fn(&[&'static str]),
+    runner: fn(&[&str], &mut [u8]) -> usize,
 }
 
 impl Command {
     /// Run the command.
-    pub fn run(&self, args: &[&'static str]) {
-        (self.runner)(args)
+    pub fn run(&self, args: &[&str], output: &mut [u8]) -> usize {
+        (self.runner)(args, output)
     }
 }
 
 /// Parse top-level commands.
-pub fn lookup(name: &'static str) -> Result<Command, Error> {
-    let entries: &[CommandEntry] = unsafe {
-        let start: *const CommandEntry = &NOSHELL_COMMAND_START as *const u32 as *const _;
-        let end: *const CommandEntry = &NOSHELL_COMMAND_END as *const u32 as *const _;
-        let len = end as usize - start as usize;
+pub fn lookup(name: &str) -> Result<Command, Error> {
+    let entries = unsafe {
+        let start = (&NOSHELL_COMMANDS_START as *const u32).cast::<CommandEntry>();
+        let end = (&NOSHELL_COMMANDS_END as *const u32).cast::<CommandEntry>();
+        let len = (end as usize) - (start as usize);
 
         core::slice::from_raw_parts(start, len)
     };
@@ -47,18 +53,83 @@ pub fn lookup(name: &'static str) -> Result<Command, Error> {
         .iter()
         .find(|x| name == x.name)
         .map(|x| Command { runner: x.runner })
-        .ok_or(Error::CommandNotFound(name))
+        .ok_or(Error::CommandNotFound)
 }
 
 #[repr(C)]
 struct CommandEntry {
     name: &'static str,
-    runner: fn(&[&'static str]),
+    runner: fn(&[&str], &mut [u8]) -> usize,
 }
 
 unsafe extern "C" {
-    static NOSHELL_COMMAND_START: u32;
-    static NOSHELL_COMMAND_END: u32;
+    static NOSHELL_COMMANDS_START: u32;
+    static NOSHELL_COMMANDS_END: u32;
+}
+
+/// Character write trait.
+pub trait Write {
+    /// Error type.
+    type Error;
+
+    /// Write the given data to the underlying byte stream.
+    async fn write(&mut self, data: &[u8]) -> Result<usize, Self::Error>;
+}
+
+/// Character read trait.
+pub trait Read {
+    /// Error type;
+    type Error;
+
+    /// Read some data from the underlying byte stream.
+    async fn read(&self, data: &mut [u8]) -> Result<usize, Self::Error>;
+}
+
+/// Run the shell.
+pub async fn start<IO: Read + Write>(mut io: IO) -> Result<(), Error> {
+    let mut input = [0u8; 1024];
+    let mut output = [0u8; 1024];
+
+    let mut cursor = 0;
+
+    loop {
+        let args: Vec<&str, 32> = loop {
+            match io.read(&mut input[cursor..]).await {
+                Ok(len) => {
+                    if let Some(eol) = input[cursor..cursor + len]
+                        .iter()
+                        .position(|&x| x as char == '\n')
+                    {
+                        let end = cursor + eol;
+                        cursor = 0;
+
+                        let line = str::from_utf8(&input[..end]).map_err(|_| Error::Utf8)?;
+                        let args = line.split(" ").collect();
+
+                        break args;
+                    } else {
+                        cursor += len;
+                    }
+                }
+
+                Err(_) => {
+                    cursor = 0;
+                }
+            }
+        };
+
+        let Some(name) = args.first() else {
+            continue;
+        };
+
+        let Ok(cmd) = lookup(name) else {
+            continue;
+        };
+
+        let len = cmd.run(&args[1..], &mut output);
+        io.write(&output[..len]).await.ok();
+    }
+    // Ok(())
 }
 
 #[cfg(test)]

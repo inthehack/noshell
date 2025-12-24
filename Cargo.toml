@@ -13,7 +13,10 @@ resolver = "2"
 members = ["noshell-parser", "noshell-macros", "noshell"]
 
 [workspace.dependencies]
-defmt = { version = "0.3.10", default-features = false }
+# Core dependencies.
+defmt = "0.3.10"
+heapless = "0.8.0"
 thiserror = { version = "2.0.11", default-features = false }
 
+# Dev dependencies.
 googletest = "0.13.0"
