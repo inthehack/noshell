@@ -4,10 +4,11 @@ use core::fmt;
 
 use futures::{Stream, StreamExt, pin_mut};
 use heapless::String;
-use noterm::cursor::{MoveRight, MoveToNextLine};
-use noterm::events::{Event, KeyCode, KeyEvent};
+use noterm::cursor::{Home, MoveRight, MoveToNextLine};
+use noterm::events::{Event, KeyCode, KeyEvent, KeyModifiers};
 use noterm::io;
 use noterm::style::Print;
+use noterm::terminal::{Clear, ClearType};
 use noterm::{Executable, Queuable};
 
 pub mod lexer;
@@ -38,7 +39,7 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// Read a line.
 pub async fn readline<OutputTy, EventsTy, ContentTy, const SIZE: usize>(
-    prompt: Prompt<ContentTy>,
+    prompt: &Prompt<ContentTy>,
     events: EventsTy,
     output: &mut OutputTy,
 ) -> Result<String<SIZE>>
@@ -71,7 +72,7 @@ where
 
                 Event::Key(KeyEvent {
                     code,
-                    modifiers: _,
+                    modifiers,
                     kind: _,
                 }) => match code {
                     KeyCode::Enter if escaped => {
@@ -80,6 +81,11 @@ where
                         output.queue(MoveRight(4))?;
                         output.flush()?;
                         escaped = false;
+                    }
+
+                    KeyCode::Char('l') if modifiers.contains(KeyModifiers::CONTROL) => {
+                        output.queue(Clear(ClearType::All))?.queue(Home)?.flush()?;
+                        prompt.reset(output)?;
                     }
 
                     KeyCode::Char(c) => {
