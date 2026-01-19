@@ -40,7 +40,7 @@ impl<'a> Iterator for WordIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         // Remove useless trailing whitespaces.
-        self.input = trim_trailing_whitespaces(self.input);
+        self.input = trim_start_whitespaces(self.input);
 
         // Check if the input is empty.
         self.input.chars().next()?;
@@ -73,7 +73,7 @@ fn parse_single_word(input: &str) -> IResult<&str, &str> {
 }
 
 #[inline(always)]
-fn trim_trailing_whitespaces(input: &str) -> &str {
+fn trim_start_whitespaces(input: &str) -> &str {
     input.trim_start_matches(is_whitespace)
 }
 

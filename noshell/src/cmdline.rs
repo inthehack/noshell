@@ -62,42 +62,37 @@ where
 
     loop {
         match events.next().await {
-            Some(Ok(event)) => {
-                #[cfg(test)]
-                println!("event: {:?}", event);
+            Some(Ok(event)) => match event {
+                Event::Key(KeyEvent {
+                    code: KeyCode::Enter,
+                    modifiers: _,
+                    kind: _,
+                }) if !escaped => break,
 
-                match event {
-                    Event::Key(KeyEvent {
-                        code: KeyCode::Enter,
-                        modifiers: _,
-                        kind: _,
-                    }) if !escaped => break,
+                Event::Key(KeyEvent {
+                    code,
+                    modifiers: _,
+                    kind: _,
+                }) => match code {
+                    KeyCode::Enter if escaped => {
+                        let _ = line.push('\n');
+                        output.queue(MoveToNextLine(1))?;
+                        output.queue(MoveRight(4))?;
+                        output.flush()?;
+                        escaped = false;
+                    }
 
-                    Event::Key(KeyEvent {
-                        code,
-                        modifiers: _,
-                        kind: _,
-                    }) => match code {
-                        KeyCode::Enter if escaped => {
-                            let _ = line.push('\n');
-                            output.queue(MoveToNextLine(1))?;
-                            output.queue(MoveRight(4))?;
-                            output.flush()?;
-                            escaped = false;
-                        }
-
-                        KeyCode::Char(c) => {
-                            let _ = line.push(c);
-                            output.execute(Print(c))?;
-                            escaped = c == '\\';
-                        }
-
-                        _ => {}
-                    },
+                    KeyCode::Char(c) => {
+                        let _ = line.push(c);
+                        output.execute(Print(c))?;
+                        escaped = c == '\\';
+                    }
 
                     _ => {}
-                }
-            }
+                },
+
+                _ => {}
+            },
 
             Some(Err(err)) => return Err(Error::from(err)),
             None => break,
