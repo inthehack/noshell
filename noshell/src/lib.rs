@@ -3,11 +3,8 @@
 #![allow(async_fn_in_trait)]
 #![deny(missing_docs)]
 
-pub use noshell_macros as macros;
-pub use noshell_parser as parser;
-
-pub use macros::Parser;
-// use noterm::io::blocking::Write;
+#[cfg(feature = "parser")]
+pub use {macros::Parser, noshell_macros as macros, noshell_parser as parser};
 
 pub mod cmdline;
 

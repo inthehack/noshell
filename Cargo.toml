@@ -15,6 +15,7 @@ members = ["noshell-parser", "noshell-macros", "noshell"]
 [workspace.dependencies]
 # Core dependencies.
 defmt = "0.3.10"
+futures = { version = "0.3.31", default-features = false }
 heapless = "0.8.0"
 nom = { version = "8.0.0", default-features = false }
 thiserror = { version = "2.0.11", default-features = false }

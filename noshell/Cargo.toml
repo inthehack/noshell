@@ -12,10 +12,12 @@ readme.workspace = true
 
 [features]
 default = []
-defmt = ["dep:defmt", "noshell-parser/defmt"]
+defmt = ["dep:defmt", "noshell-parser?/defmt"]
+parser = ["dep:noshell-parser"]
 
 [dependencies]
 defmt = { workspace = true, optional = true }
+futures = { workspace = true }
 heapless = { workspace = true }
 nom = { workspace = true }
 thiserror = { workspace = true }
@@ -23,8 +25,7 @@ thiserror = { workspace = true }
 noterm = { version = "0.1.0", path = "../../noterm" }
 
 noshell-macros = { path = "../noshell-macros", version = "0.2.0" }
-noshell-parser = { path = "../noshell-parser", version = "0.2.0" }
-futures = { version = "0.3.31", default-features = false }
+noshell-parser = { path = "../noshell-parser", version = "0.2.0", optional = true }
 
 [dev-dependencies]
 insta = "1.46.0"
