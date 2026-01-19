@@ -8,16 +8,7 @@ use nom::character::complete::char;
 use nom::sequence::delimited;
 use nom::{IResult, Parser};
 
-/// Error.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// Unknown error, for development only.
-    #[error("unknown error")]
-    Unknown,
-}
-
-/// Re-export of result type.
-pub type Result<T, E = Error> = core::result::Result<T, E>;
+use crate::cmdline::{Error, Result};
 
 /// Lex the command line and split it into words in a POSIX-compliant way.
 pub fn split<'a>(input: &'a str) -> impl Iterator<Item = Result<&'a str>> + 'a {

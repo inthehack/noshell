@@ -2,6 +2,9 @@ use speculoos::prelude::*;
 
 use crate as noshell;
 
+#[cfg(not(feature = "parser"))]
+compile_error!("missing `parser` feature for running tests");
+
 #[test]
 fn it_should_parse_args_with_simple_type() {
     #[derive(Debug, noshell::Parser)]

@@ -2,9 +2,11 @@
 
 use core::fmt;
 
+use noterm::Queuable;
 use noterm::cursor::{MoveRight, MoveToNextLine};
 use noterm::style::Print;
-use noterm::{Queuable, io};
+
+use crate::cmdline::Result;
 
 /// A Prompt is composed of several styled string parts.
 pub struct Prompt<ContentTy> {
@@ -24,9 +26,9 @@ where
     <ContentTy as Iterator>::Item: fmt::Display,
 {
     /// Reset the prompt and print it to the output.
-    pub fn reset<OutputTy>(&self, output: &mut OutputTy) -> io::Result<()>
+    pub fn reset<OutputTy>(&self, output: &mut OutputTy) -> Result<()>
     where
-        OutputTy: io::blocking::Write,
+        OutputTy: noterm::io::blocking::Write,
     {
         let parts = self.parts.clone();
         output.queue(MoveToNextLine(1))?;

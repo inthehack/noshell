@@ -13,6 +13,7 @@ readme.workspace = true
 [features]
 default = []
 defmt = ["dep:defmt", "noshell-parser?/defmt"]
+events = []
 parser = ["dep:noshell-parser"]
 
 [dependencies]
