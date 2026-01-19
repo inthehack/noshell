@@ -67,7 +67,7 @@ async fn it_should_print_prompt() {
 
     pin_mut!(stream);
 
-    let line: Result<heapless::String<256>, _> = readline(prompt, stream, &mut output).await;
+    let line: Result<heapless::String<256>, _> = readline(&prompt, stream, &mut output).await;
     assert_that!(line).is_ok();
 
     let result = output.inner.as_str();
@@ -95,7 +95,7 @@ async fn it_should_read_line(#[context] ctx: Context, #[case] input: &str) {
 
     pin_mut!(stream);
 
-    let line: Result<heapless::String<256>, _> = readline(prompt, stream, &mut output).await;
+    let line: Result<heapless::String<256>, _> = readline(&prompt, stream, &mut output).await;
     let result = assert_that!(line).is_ok().subject;
 
     insta::with_settings!({
