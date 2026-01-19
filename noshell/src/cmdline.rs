@@ -6,7 +6,7 @@ use futures::{Stream, StreamExt, pin_mut};
 use heapless::String;
 use noterm::cursor::{MoveRight, MoveToNextLine};
 use noterm::events::{Event, KeyCode, KeyEvent};
-use noterm::io::blocking::Write;
+use noterm::io;
 use noterm::style::Print;
 use noterm::{Executable, Queuable};
 
@@ -38,13 +38,13 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// Read a line.
 pub async fn readline<OutputTy, EventsTy, ContentTy, const SIZE: usize>(
-    output: &mut OutputTy,
-    events: EventsTy,
     prompt: Prompt<ContentTy>,
+    events: EventsTy,
+    output: &mut OutputTy,
 ) -> Result<String<SIZE>>
 where
-    OutputTy: Write,
-    EventsTy: Stream<Item = noterm::io::Result<Event>>,
+    OutputTy: io::blocking::Write,
+    EventsTy: Stream<Item = io::Result<Event>>,
     ContentTy: Iterator + Clone,
     <ContentTy as Iterator>::Item: fmt::Display,
 {
