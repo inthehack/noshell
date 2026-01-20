@@ -4,7 +4,7 @@ use core::fmt;
 
 use futures::{Stream, StreamExt, pin_mut};
 use heapless::String;
-use noterm::cursor::{Home, MoveRight, MoveToNextLine};
+use noterm::cursor::{Home, MoveLeft, MoveRight, MoveToNextLine};
 use noterm::events::{Event, KeyCode, KeyEvent, KeyModifiers};
 use noterm::io;
 use noterm::style::Print;
@@ -29,6 +29,10 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] noterm::io::Error),
 
+    /// End of events.
+    #[error("no more events")]
+    NoMoreEvents,
+
     /// Unknown error.
     #[error("unknown error")]
     Unknown,
@@ -50,7 +54,7 @@ where
     <ContentTy as Iterator>::Item: fmt::Display,
 {
     // Prepare the output of the line.
-    let mut line: String<SIZE> = String::new();
+    let mut line: Line<SIZE> = Line::default();
 
     // Write the prompt, then read for input events.
     prompt.reset(output)?;
@@ -58,54 +62,128 @@ where
     // Pin the events, so that it stays on the stack while calling async/await.
     pin_mut!(events);
 
-    // Create the escaped state.
-    let mut escaped = false;
-
     loop {
         match events.next().await {
             Some(Ok(event)) => match event {
-                Event::Key(KeyEvent {
-                    code: KeyCode::Enter,
-                    modifiers: _,
-                    kind: _,
-                }) if !escaped => break,
-
-                Event::Key(KeyEvent {
-                    code,
-                    modifiers,
-                    kind: _,
-                }) => match code {
-                    KeyCode::Enter if escaped => {
-                        let _ = line.push('\n');
-                        output.queue(MoveToNextLine(1))?;
-                        output.queue(MoveRight(4))?;
-                        output.flush()?;
-                        escaped = false;
-                    }
-
-                    KeyCode::Char('l') if modifiers.contains(KeyModifiers::CONTROL) => {
-                        output.queue(Clear(ClearType::All))?.queue(Home)?.flush()?;
-                        prompt.reset(output)?;
-                    }
-
-                    KeyCode::Char(c) => {
-                        let _ = line.push(c);
-                        output.execute(Print(c))?;
-                        escaped = c == '\\';
-                    }
-
-                    _ => {}
-                },
-
-                _ => {}
+                Event::Key(key_event) => {
+                    if let Some(contents) = line.on_key_event(key_event, prompt, output)? {
+                        return Ok(unescape::<SIZE>(contents));
+                    };
+                }
+                Event::Cursor(_) => {}
+                Event::Screen(_) => {}
             },
 
             Some(Err(err)) => return Err(Error::from(err)),
-            None => break,
+            None => return Err(Error::NoMoreEvents),
         }
     }
+}
 
-    Ok(unescape::<SIZE>(&line))
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum LineStatus {
+    Done,
+    Pending,
+}
+
+#[derive(Debug, Default)]
+struct Line<const SIZE: usize = 256> {
+    escaped: bool,
+    buffer: String<SIZE>,
+}
+
+impl<const SIZE: usize> Line<SIZE> {
+    fn contents(&self) -> &str {
+        self.buffer.as_str()
+    }
+
+    fn on_key_event<ContentTy, WriterTy>(
+        &mut self,
+        event: KeyEvent,
+        prompt: &Prompt<ContentTy>,
+        output: &mut WriterTy,
+    ) -> Result<Option<&str>>
+    where
+        ContentTy: Iterator + Clone,
+        <ContentTy as Iterator>::Item: fmt::Display,
+        WriterTy: io::blocking::Write,
+    {
+        let KeyEvent {
+            code,
+            modifiers,
+            kind: _,
+        } = event;
+
+        let is_ctrl_modified = modifiers.contains(KeyModifiers::CONTROL);
+        let is_shift_modified = modifiers.contains(KeyModifiers::SHIFT);
+
+        if is_ctrl_modified && on_ctrl_key_event(code, prompt, output)? == LineStatus::Done {
+            return Ok(None);
+        }
+
+        if KeyCode::Enter == code && !self.escaped {
+            return Ok(Some(self.contents()));
+        }
+
+        if KeyCode::Enter == code && self.escaped {
+            let _ = self.buffer.push('\n');
+            output.queue(MoveToNextLine(1))?;
+            output.queue(MoveRight(4))?;
+            output.flush()?;
+            self.escaped = false;
+            return Ok(None);
+        }
+
+        if KeyCode::Backspace == code {
+            output
+                .queue(MoveLeft(self.buffer.len() as u16))?
+                .queue(Clear(ClearType::LineFromCursor))?
+                .flush()?;
+
+            self.buffer.pop();
+            output.execute(Print(self.contents()))?;
+            return Ok(None);
+        }
+
+        if let KeyCode::Char(c) = code {
+            let cased = if c.is_alphabetic() && is_shift_modified {
+                c.to_ascii_uppercase()
+            } else {
+                c
+            };
+
+            let _ = self.buffer.push(cased);
+            output.execute(Print(cased))?;
+
+            self.escaped = c == '\\';
+            return Ok(None);
+        }
+
+        Ok(None)
+    }
+}
+
+fn on_ctrl_key_event<ContentTy, WriterTy>(
+    key: KeyCode,
+    prompt: &Prompt<ContentTy>,
+    output: &mut WriterTy,
+) -> Result<LineStatus>
+where
+    ContentTy: Iterator + Clone,
+    <ContentTy as Iterator>::Item: fmt::Display,
+    WriterTy: io::blocking::Write,
+{
+    let status = match key {
+        KeyCode::Char('l') => {
+            output.queue(Clear(ClearType::All))?.queue(Home)?.flush()?;
+            prompt.reset(output)?;
+            LineStatus::Done
+        }
+
+        _ => LineStatus::Pending,
+    };
+
+    Ok(status)
 }
 
 fn unescape<const SIZE: usize>(input: &str) -> heapless::String<SIZE> {
