@@ -3,7 +3,7 @@
 use core::fmt;
 
 use futures::{Stream, StreamExt, pin_mut};
-use heapless::String;
+use heapless::{CapacityError, String};
 use noterm::cursor::{Home, MoveLeft, MoveRight, MoveToNextLine};
 use noterm::events::{Event, KeyCode, KeyEvent, KeyModifiers};
 use noterm::io;
@@ -29,9 +29,13 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] noterm::io::Error),
 
-    /// End of events.
+    /// No more events from the stream.
     #[error("no more events")]
     NoMoreEvents,
+
+    /// No space left in line buffer.
+    #[error("no space left")]
+    NoSpaceLeft,
 
     /// Unknown error.
     #[error("unknown error")]
@@ -90,12 +94,12 @@ enum LineStatus {
 struct Line<const SIZE: usize = 256> {
     escaped: bool,
     buffer: String<SIZE>,
+    cursor: usize,
 }
 
 impl<const SIZE: usize> Line<SIZE> {
-    fn contents(&self) -> &str {
-        self.buffer.as_str()
-    }
+    const _ASSERT_SIZE_IS_U16_CONVERTIBLE: () =
+        assert!(SIZE <= u16::MAX as usize, "SIZE must be less than 65535");
 
     fn on_key_event<ContentTy, WriterTy>(
         &mut self,
@@ -122,26 +126,43 @@ impl<const SIZE: usize> Line<SIZE> {
         }
 
         if KeyCode::Enter == code && !self.escaped {
-            return Ok(Some(self.contents()));
+            return Ok(Some(self.buffer.as_str()));
         }
 
         if KeyCode::Enter == code && self.escaped {
-            let _ = self.buffer.push('\n');
-            output.queue(MoveToNextLine(1))?;
-            output.queue(MoveRight(4))?;
-            output.flush()?;
+            self.buffer.push('\n')?;
+
+            output
+                .queue(MoveToNextLine(1))?
+                .queue(MoveRight(4))?
+                .flush()?;
+
+            self.cursor += 1;
             self.escaped = false;
             return Ok(None);
         }
 
         if KeyCode::Backspace == code {
+            if self.cursor == 0 {
+                return Ok(None);
+            }
+
+            self.buffer.remove(self.cursor - 1);
+            let (_, updated) = self.buffer.split_at(self.cursor - 1);
+
             output
-                .queue(MoveLeft(self.buffer.len() as u16))?
+                .queue(MoveLeft(1))?
                 .queue(Clear(ClearType::LineFromCursor))?
                 .flush()?;
 
-            self.buffer.pop();
-            output.execute(Print(self.contents()))?;
+            if !updated.is_empty() {
+                output
+                    .queue(Print(updated))?
+                    .queue(MoveLeft(updated.len() as u16))?
+                    .flush()?;
+            }
+
+            self.cursor -= 1;
             return Ok(None);
         }
 
@@ -152,11 +173,47 @@ impl<const SIZE: usize> Line<SIZE> {
                 c
             };
 
-            let _ = self.buffer.push(cased);
-            output.execute(Print(cased))?;
+            let is_cursor_eol = self.cursor == self.buffer.len();
 
+            if is_cursor_eol {
+                self.buffer.push(cased)?;
+                output.execute(Print(cased))?;
+            } else {
+                self.buffer.insert(self.cursor, cased)?;
+                let (_, updated) = self.buffer.split_at(self.cursor);
+
+                output
+                    .queue(Clear(ClearType::LineFromCursor))?
+                    .queue(Print(updated))?
+                    .queue(MoveLeft((updated.len() - 1) as u16))?
+                    .flush()?;
+            };
+
+            self.cursor += 1;
             self.escaped = c == '\\';
             return Ok(None);
+        }
+
+        match code {
+            KeyCode::Left => {
+                let old = self.cursor;
+                self.cursor = self.cursor.saturating_sub(1);
+
+                if old != self.cursor {
+                    output.execute(MoveLeft(1))?;
+                }
+            }
+
+            KeyCode::Right => {
+                let old = self.cursor;
+                self.cursor = self.cursor.saturating_add(1).min(self.buffer.len());
+
+                if old != self.cursor {
+                    output.execute(MoveRight(1))?;
+                }
+            }
+
+            _ => {}
         }
 
         Ok(None)
@@ -219,4 +276,10 @@ fn unescape<const SIZE: usize>(input: &str) -> heapless::String<SIZE> {
         );
 
     acc
+}
+
+impl From<CapacityError> for Error {
+    fn from(_: CapacityError) -> Self {
+        Error::NoSpaceLeft
+    }
 }
