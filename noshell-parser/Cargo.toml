@@ -11,9 +11,8 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-heapless = "0.8.0"
-
 defmt = { workspace = true, optional = true }
+heapless = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
