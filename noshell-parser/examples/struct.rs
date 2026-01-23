@@ -1,6 +1,10 @@
 use core::panic;
 
-use noshell_parser::{ParsedArgs, lexer::Flag};
+use noshell_parser::{
+    ParsedArgs,
+    lexer::Flag,
+    parser::{ArgLookupTable, AtMost},
+};
 
 struct MyArgs {
     field1: u32,
@@ -8,10 +12,11 @@ struct MyArgs {
 }
 
 fn main() {
-    let ids = &[(Flag::Long("field1"), "field1")];
-    let argv = ["--field1", "42"];
+    static LOOKUP: ArgLookupTable<'_> =
+        ArgLookupTable::new(&[(Flag::Long("field1"), "field1", AtMost::One)]);
 
-    let parsed: ParsedArgs<'_, _, 1> = ParsedArgs::parse_from(argv.into_iter(), ids.iter());
+    let argv = &["--field1", "42"];
+    let parsed: ParsedArgs<'_, 1> = ParsedArgs::parse_from(argv, &LOOKUP);
 
     let args = MyArgs {
         field1: parsed

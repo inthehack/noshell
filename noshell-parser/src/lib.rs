@@ -12,5 +12,4 @@ pub mod parser;
 /// Utilities.
 pub mod utils;
 
-pub use lexer::Tokens;
-pub use parser::{Error, ParsedArgs};
+pub use parser::{ArgLookupTable, AtMost, Error, ParsedArgs};

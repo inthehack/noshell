@@ -5,8 +5,14 @@ use core::str::FromStr;
 
 use heapless::Vec;
 
-use crate::Tokens;
-use crate::lexer::{Flag, Token, Values};
+use crate::lexer::{Flag, Token};
+
+mod values;
+
+pub use values::{AtMost, Values};
+
+#[cfg(test)]
+mod tests;
 
 /// Defines the possible errors that may occur during parsing of arguments.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -22,6 +28,10 @@ pub enum Error {
     #[error("invalid argument")]
     InvalidArgument,
 
+    /// The argument has no expected value on the command line.
+    #[error("no value expected")]
+    NoValueArgument,
+
     /// The argument value is missing, which occurs when the flag is not boolean and expect a
     /// value.
     #[error("missing argument")]
@@ -32,60 +42,128 @@ pub enum Error {
     OutOfMemory,
 }
 
-/// Defines the result of argument parsing. This is a simple key-value store that offers a look-up
-/// over parsed arguments.
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ParsedArgs<'a, IterTy, const ARG_COUNT_MAX: usize = 8>
-where
-    IterTy: Iterator<Item = &'a str> + Clone,
-{
-    args: Vec<(&'a str, Values<'a, IterTy>), ARG_COUNT_MAX>,
+/// Re-export of result type with module [`Error`].
+pub type Result<T, E = Error> = core::result::Result<T, E>;
+
+/// Defines an argument on the command line.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Arg<'a> {
+    /// A named argument, which is defined by a flag, and zero or more values.
+    Named(&'a str, Values<'a>),
+
+    /// A positional argument, which is defined by its value.
+    Positional(&'a str),
 }
 
-impl<'a, IterTy, const SIZE: usize> ParsedArgs<'a, IterTy, SIZE>
-where
-    IterTy: Iterator<Item = &'a str> + Clone,
-{
+/// Argument id to metadata look-up table.
+#[derive(Debug)]
+pub struct ArgLookupTable<'a> {
+    table: &'a [(Flag<'a>, &'a str, AtMost)],
+}
+
+impl<'a> ArgLookupTable<'a> {
+    /// Create a new look-up table.
+    pub const fn new(table: &'a [(Flag<'a>, &'a str, AtMost)]) -> Self {
+        ArgLookupTable { table }
+    }
+
+    /// Look up for a flag.
+    pub fn metadata_of(&self, flag: &Flag<'_>) -> Option<(&'a str, AtMost)> {
+        let (_, id, expected) = self.table.iter().find(|&x| x.0 == *flag)?;
+        Some((*id, *expected))
+    }
+}
+
+/// Defines the result of argument parsing. This is a simple key-value store that offers a look-up
+/// over parsed arguments.
+#[derive(Default, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ParsedArgs<'a, const CAPACITY: usize = 1> {
+    args: Vec<Arg<'a>, CAPACITY>,
+}
+
+impl<'a, const CAPACITY: usize> ParsedArgs<'a, CAPACITY> {
     /// Parse the command line input from a token stream. The result is the set of found arguments.
-    pub fn parse_from<'flag, FlagIterTy>(argv: IterTy, ids: FlagIterTy) -> Self
-    where
-        'flag: 'a,
-        FlagIterTy: Iterator<Item = &'flag (Flag<'flag>, &'flag str)> + Clone,
-    {
+    pub fn parse_from(argv: &'a [&'a str], ids: &ArgLookupTable<'static>) -> Self {
         Self::try_parse_from(argv, ids).expect("cannot parse arguments")
     }
 
     /// Try to parse the input arguments.
-    pub fn try_parse_from<'flag, FlagIterTy>(argv: IterTy, ids: FlagIterTy) -> Result<Self, Error>
-    where
-        'flag: 'a,
-        FlagIterTy: Iterator<Item = &'flag (Flag<'flag>, &'flag str)> + Clone,
-    {
-        let mut tokens = Tokens::new(argv);
-        let mut out = ParsedArgs::default();
+    pub fn try_parse_from(
+        argv: &'a [&'a str],
+        table: &ArgLookupTable<'static>,
+    ) -> Result<Self, Error> {
+        // Some initial checks before start parsing.
+        Self::check_capacity(argv)?;
+        Self::check_undefined_argument(argv, table)?;
 
-        while let Some(token) = tokens.next() {
-            if let Token::Flag(f) = &token {
-                let id = if let Some((_, id)) = ids.clone().find(|&x| *f == x.0) {
-                    id
-                } else {
-                    return Err(Error::UndefinedArgument);
-                };
+        let mut parsed = ParsedArgs::default();
 
-                if out.args.push((id, tokens.values())).is_err() {
-                    return Err(Error::OutOfMemory);
-                }
+        let lookup = |flag: &Flag<'a>| {
+            // SAFETY: the validation above guarantees that the lookup found an entry.
+            unsafe { table.metadata_of(flag).unwrap_unchecked() }
+        };
+
+        let named = |args: &mut Vec<_, _>, name, expected, (start, end)| {
+            let (rest, arg) = Self::parse_arg_values(&argv[start..end], name, expected);
+
+            // SAFETY: the validation above guarantees that the capacity of the resulting
+            // parsed args is sufficient.
+            unsafe { args.push(arg).unwrap_unchecked() };
+
+            for value in rest.iter() {
+                // SAFETY: the validation above guarantees that the capacity of the resulting
+                // parsed args is sufficient.
+                unsafe { args.push(Arg::Positional(value)).unwrap_unchecked() };
             }
+        };
+
+        let positional = |args: &mut Vec<_, _>, value| {
+            // SAFETY: the validation above guarantees that the capacity of the resulting
+            // parsed args is sufficient.
+            unsafe { args.push(Arg::Positional(value)).unwrap_unchecked() }
+        };
+
+        let parse_then_push =
+            |state, (index, arg): (usize, &&'a str)| match (state, Token::tokenize(arg)) {
+                // A flag has been met, while this new flag occurs, then save the previous one and
+                // keep going on the new flag values.
+                (Some((flag, start)), Token::Flag(next)) => {
+                    let (name, expected) = lookup(&flag);
+                    named(&mut parsed.args, name, expected, (start, index));
+                    Some((next, index + 1))
+                }
+
+                // A flag has been met and this value belong to it, then keep going.
+                (Some(_), Token::Value(_)) => state,
+
+                // No flag has been met and a new one occurs, then keep going on the new flag
+                // values.
+                (None, Token::Flag(flag)) => Some((flag, index + 1)),
+
+                // No flag has been met, then this value is a positional argument.
+                (None, Token::Value(value)) => {
+                    positional(&mut parsed.args, value);
+                    None
+                }
+            };
+
+        let last_flag = argv.iter().enumerate().fold(None, parse_then_push);
+
+        if let Some((flag, start)) = last_flag {
+            let (name, expected) = lookup(&flag);
+            named(&mut parsed.args, name, expected, (start, argv.len()));
         }
 
-        Ok(out)
+        Ok(parsed)
     }
 
     /// Check if there exists an argument with the given key (i.e. short or long flag).
     #[inline(always)]
     pub fn contains(&self, id: &str) -> bool {
-        self.args.iter().any(|x| id == x.0)
+        self.args
+            .iter()
+            .any(|arg| matches!(arg, Arg::Named(name, _) if id == *name))
     }
 
     /// Get one value for the given flag identifier.
@@ -110,8 +188,12 @@ where
     where
         T: FromStr,
     {
-        if let Some((_, values)) = self.args.iter().find(|&x| id == x.0) {
-            let mut iter = values.clone();
+        if let Some(Arg::Named(_, values)) = self
+            .args
+            .iter()
+            .find(|&x| matches!(x, Arg::Named(name, _) if *name == id))
+        {
+            let mut iter = values.iter();
 
             let value = if let Some(value) = iter.next() {
                 value
@@ -145,69 +227,56 @@ where
         B: FromIterator<T>,
         T: FromStr,
     {
-        if let Some((_, values)) = self.args.iter().find(|x| x.0 == id) {
-            let iter = values.clone();
-
-            // Collect on Seq<Result<T, _>> can be coerced to Result<Seq<T>, _>.
-            let result: Result<B, _> = iter.map(|x| x.parse::<T>()).collect();
-
-            // The value cannot be parsed to the target type `T`.
-            return result.map(Some).map_err(|_| Error::InvalidArgument);
+        if let Some(Arg::Named(_, values)) = self
+            .args
+            .iter()
+            .find(|&x| matches!(x, Arg::Named(name, _) if *name == id))
+        {
+            return Ok(Some(
+                values
+                    .iter()
+                    .map(|x| x.parse::<T>())
+                    .collect::<Result<B, _>>()
+                    .map_err(|_| Error::InvalidArgument)?,
+            ));
         }
 
         Ok(None)
     }
-}
 
-impl<'a, IterTy, const SIZE: usize> Default for ParsedArgs<'a, IterTy, SIZE>
-where
-    IterTy: Iterator<Item = &'a str> + Clone,
-{
-    fn default() -> Self {
-        ParsedArgs {
-            args: Vec::default(),
+    fn check_capacity(argv: &[&str]) -> Result<()> {
+        if CAPACITY < argv.len() {
+            return Err(Error::OutOfMemory);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use googletest::prelude::*;
-
-    use super::*;
-
-    #[test]
-    fn it_should_parse_missing_arg() {
-        let ids = &[(Flag::Short('v'), "verbose")];
-        let argv = ["-v"].into_iter();
-
-        let args: ParsedArgs<'_, _, 1> = ParsedArgs::parse_from(argv, ids.iter());
-        assert_that!(args.try_get_one::<u32>("verbose"), eq(&Ok(Some(None))));
+        Ok(())
     }
 
-    #[test]
-    fn it_should_parse_invalid_arg() {
-        let ids = &[(Flag::Short('v'), "verbose")];
-        let argv = ["-v", "-42"].into_iter();
+    fn check_undefined_argument(argv: &[&str], table: &ArgLookupTable<'_>) -> Result<()> {
+        let undefined = argv
+            .iter()
+            .map(|&x| Token::tokenize(x))
+            .any(|x| matches!(x, Token::Flag(flag) if table.metadata_of(&flag).is_none()));
 
-        let args: ParsedArgs<'_, _, 1> = ParsedArgs::parse_from(argv, ids.iter());
+        if undefined {
+            return Err(Error::UndefinedArgument);
+        }
 
-        assert_that!(
-            args.try_get_one::<u32>("verbose"),
-            eq(&Err(Error::InvalidArgument))
-        );
+        Ok(())
     }
 
-    #[test]
-    fn it_should_parse_valid_value() {
-        let ids = &[(Flag::Short('v'), "verbose")];
-        let input = ["-v", "42"].into_iter();
-
-        let args: ParsedArgs<'_, _, 1> = ParsedArgs::parse_from(input, ids.iter());
-
-        assert_that!(
-            args.try_get_one::<u32>("verbose"),
-            matches_pattern!(&Ok(Some(Some(42))))
-        );
+    fn parse_arg_values<'b>(
+        argv: &'b [&'b str],
+        name: &'b str,
+        expected: AtMost,
+    ) -> (Values<'b>, Arg<'b>) {
+        match expected {
+            AtMost::Zero => (Values::new(argv), Arg::Named(name, Values::empty())),
+            AtMost::One => {
+                let rest = if argv.len() <= 1 { &[] } else { &argv[1..] };
+                let arg = if argv.is_empty() { &[] } else { &argv[..1] };
+                (Values::new(rest), Arg::Named(name, Values::new(arg)))
+            }
+            AtMost::Many => (Values::empty(), Arg::Named(name, Values::new(argv))),
+        }
     }
 }
