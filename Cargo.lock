@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "noshell"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "defmt 0.3.100",
  "futures",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "noshell-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "darling",
@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "noshell-parser"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "defmt 0.3.100",
  "googletest",
