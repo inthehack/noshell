@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use proc_macro_error::abort_call_site;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
 use syn::ext::IdentExt;
@@ -13,28 +14,24 @@ use syn::{Ident, Type};
 
 use crate::arg::MetaArg;
 use crate::attr::{Attr, AttrKind, AttrName, AttrValue};
-use crate::helpers::{error, token_stream_with_error};
 use crate::ty::{Ty, get_inner_ty};
 
 pub fn run(item: TokenStream) -> TokenStream {
-    let input: DeriveInput = match syn::parse2(item.clone()) {
+    let input: DeriveInput = match syn::parse2(item) {
         Ok(x) => x,
-        Err(e) => return token_stream_with_error(item, e),
+        Err(err) => abort_call_site!("failed to parse input, {}", err),
     };
 
-    try_run(&input).unwrap_or_else(|err| {
-        let mut errors = TokenStream::new();
-        error(&mut errors, &input, err.to_string());
-        quote! {
-            #errors
-        }
-    })
+    match try_run(&input) {
+        Ok(derived) => derived,
+        Err(err) => abort_call_site!("failed to derive input, {}", err),
+    }
 }
 
 // This is the default value.
 const PARSED_ARGS_DEFAULT_CAPACITY: usize = 32;
 
-pub fn try_run(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
+pub fn try_run(input: &DeriveInput) -> syn::Result<TokenStream> {
     let ident = &input.ident;
 
     match input.data {
@@ -79,7 +76,7 @@ pub fn try_run(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
     }
 }
 
-fn collect_args_meta(fields: &FieldsNamed) -> Result<Vec<MetaArg>, syn::Error> {
+fn collect_args_meta(fields: &FieldsNamed) -> syn::Result<Vec<MetaArg>> {
     let meta = fields
         .named
         .iter()
@@ -92,7 +89,7 @@ fn collect_args_meta(fields: &FieldsNamed) -> Result<Vec<MetaArg>, syn::Error> {
     Ok(meta)
 }
 
-fn build_args_init(fields: &[MetaArg], ident: Ident) -> Result<TokenStream, syn::Error> {
+fn build_args_init(fields: &[MetaArg], ident: Ident) -> syn::Result<TokenStream> {
     let args = fields
         .iter()
         .map(|x| build_arg_parser(x, ident.clone()))
@@ -105,7 +102,7 @@ fn build_args_init(fields: &[MetaArg], ident: Ident) -> Result<TokenStream, syn:
     }})
 }
 
-fn build_arg_parser(arg: &MetaArg, args_ident: Ident) -> Result<TokenStream, syn::Error> {
+fn build_arg_parser(arg: &MetaArg, args_ident: Ident) -> syn::Result<TokenStream> {
     let ty = &arg.ty;
     let inner_ty = get_inner_ty(ty);
 
@@ -184,7 +181,7 @@ where
     attrs.iter().find(|&x| predicate(x))
 }
 
-fn parse_attr_of_literal_string_with<T, P>(attr: &Attr, parser: P) -> Result<Option<T>, syn::Error>
+fn parse_attr_of_literal_string_with<T, P>(attr: &Attr, parser: P) -> syn::Result<Option<T>>
 where
     P: FnOnce(&LitStr) -> Result<T, syn::Error>,
 {
@@ -196,7 +193,7 @@ where
     parser(lit).map(Some)
 }
 
-fn parse_attr_of_literal_expr_with<T, P>(attr: &Attr, parser: P) -> Result<Option<T>, syn::Error>
+fn parse_attr_of_literal_expr_with<T, P>(attr: &Attr, parser: P) -> syn::Result<Option<T>>
 where
     P: FnOnce(&Lit) -> Result<T, syn::Error>,
 {
@@ -208,7 +205,7 @@ where
     parser(lit).map(Some)
 }
 
-fn parse_noshell_attr_limit_arg(attr: &Attr) -> Result<usize, syn::Error> {
+fn parse_noshell_attr_limit_arg(attr: &Attr) -> syn::Result<usize> {
     parse_attr_of_literal_expr_with(attr, |lit| {
         if let Lit::Int(val) = lit {
             val.base10_parse()
@@ -230,7 +227,7 @@ fn parse_noshell_attr_limit_arg(attr: &Attr) -> Result<usize, syn::Error> {
     })
 }
 
-fn get_noshell_attr_limit_arg_value(attrs: &[Attr]) -> Result<Option<usize>, syn::Error> {
+fn get_noshell_attr_limit_arg_value(attrs: &[Attr]) -> syn::Result<Option<usize>> {
     if let Some(attr) = find_attr_with(attrs, |x| {
         x.kind == AttrKind::NoShell && x.name == Some(AttrName::Limit)
     }) {
@@ -240,7 +237,7 @@ fn get_noshell_attr_limit_arg_value(attrs: &[Attr]) -> Result<Option<usize>, syn
     Ok(None)
 }
 
-fn parse_attr_arg_short_arg(attr: &Attr) -> Result<Option<char>, syn::Error> {
+fn parse_attr_arg_short_arg(attr: &Attr) -> syn::Result<Option<char>> {
     parse_attr_of_literal_expr_with(attr, |lit| {
         if let Lit::Char(val) = lit {
             Ok(val.value())
@@ -253,7 +250,7 @@ fn parse_attr_arg_short_arg(attr: &Attr) -> Result<Option<char>, syn::Error> {
     })
 }
 
-fn parse_attr_arg_long_arg(attr: &Attr) -> Result<Option<String>, syn::Error> {
+fn parse_attr_arg_long_arg(attr: &Attr) -> syn::Result<Option<String>> {
     parse_attr_of_literal_string_with(attr, |lit| Ok(lit.value()))
 }
 
