@@ -1,0 +1,5 @@
+---
+source: noshell-macros/src/derive/tests.rs
+description: "value : Option < Option < u32 > >"
+---
+value : if __args . contains ("value") { Some (__args . try_get_one :: < u32 > ("value") . map (Option :: flatten) ?) } else { None }

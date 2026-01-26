@@ -15,7 +15,7 @@ pub enum Flag<'a> {
 }
 
 /// Defines a `Token` that has been read from the command line.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Token<'a> {
     /// Flag.

@@ -1,0 +1,5 @@
+---
+source: noshell-macros/src/derive/tests.rs
+description: "value : Vec < u32 , 8 >"
+---
+value : __args . try_get_many :: < _ , u32 > ("value") . and_then (noshell :: parser :: utils :: check_arg_is_missing) . map (Option :: unwrap) . and_then (noshell :: parser :: utils :: check_vec_is_missing) ?

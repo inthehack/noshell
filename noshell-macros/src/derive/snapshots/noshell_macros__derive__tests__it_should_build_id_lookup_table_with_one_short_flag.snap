@@ -1,0 +1,5 @@
+---
+source: noshell-macros/src/derive/tests.rs
+description: "input: `# [arg (short = 'd')] value : u32`"
+---
+[(noshell :: parser :: lexer :: Flag :: Short ('d') , "value" , noshell :: parser :: AtMost :: One)]

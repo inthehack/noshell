@@ -3,13 +3,13 @@
 use std::collections::HashSet;
 
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote, quote_spanned};
-use syn::Ident;
+use quote::{format_ident, quote, quote_spanned};
 use syn::ext::IdentExt;
 use syn::{
     Data, DataStruct, DeriveInput, Expr, ExprLit, Fields, FieldsNamed, Lit, LitStr,
     spanned::Spanned,
 };
+use syn::{Ident, Type};
 
 use crate::arg::MetaArg;
 use crate::attr::{Attr, AttrKind, AttrName, AttrValue};
@@ -57,7 +57,7 @@ pub fn try_run(input: &DeriveInput) -> Result<TokenStream, syn::Error> {
                     {
                         use noshell::parser::{ArgLookupTable, ParsedArgs};
 
-                        static LOOKUP_TABLE: ArgLookupTable<'_> = ArgLookupTable::new(#lookup);
+                        static LOOKUP_TABLE: ArgLookupTable<'_> = ArgLookupTable::new(&#lookup);
                         let args = ParsedArgs::<'_, #size>::try_parse_from(input, &LOOKUP_TABLE)?;
 
                         Ok(#ident #init)
@@ -258,7 +258,7 @@ fn parse_attr_arg_long_arg(attr: &Attr) -> Result<Option<String>, syn::Error> {
 }
 
 fn build_arg_lookup_table(args: &[MetaArg]) -> syn::Result<TokenStream> {
-    let mut items = TokenStream::new();
+    let mut items = Vec::new();
 
     let mut short_keys: HashSet<char> = HashSet::new();
     let mut long_keys: HashSet<String> = HashSet::new();
@@ -289,8 +289,8 @@ fn build_arg_lookup_table(args: &[MetaArg]) -> syn::Result<TokenStream> {
             }
 
             let flag = quote!(noshell::parser::lexer::Flag::Short(#key));
-            let pair = quote!( ( #flag, #id, noshell::parser::Values::One ), );
-            pair.to_tokens(&mut items);
+            let atmost = parse_atmost_with_type(&arg.ty);
+            items.push(quote! { (#flag, #id, #atmost) });
 
             if i > 0 {
                 if errors.is_none() {
@@ -333,8 +333,8 @@ fn build_arg_lookup_table(args: &[MetaArg]) -> syn::Result<TokenStream> {
             }
 
             let flag = quote!(noshell::parser::lexer::Flag::Long(#key));
-            let pair = quote!( ( #flag, #id, noshell::parser::Values::One ), );
-            pair.to_tokens(&mut items);
+            let atmost = parse_atmost_with_type(&arg.ty);
+            items.push(quote! { (#flag, #id, #atmost) });
 
             if i > 0 {
                 if errors.is_none() {
@@ -353,6 +353,7 @@ fn build_arg_lookup_table(args: &[MetaArg]) -> syn::Result<TokenStream> {
 
         // If the argument has no defined short or long flag, add a long flag by default. This
         // default long flag has the same value as the field.
+        // TODO: make this case as positional argument.
         if shorts.is_empty() && longs.is_empty() {
             if !long_keys.insert(id.clone()) {
                 return Err(syn::Error::new(
@@ -362,267 +363,20 @@ fn build_arg_lookup_table(args: &[MetaArg]) -> syn::Result<TokenStream> {
             }
 
             let flag = quote!(noshell::parser::lexer::Flag::Long(#id));
-            let pair = quote!( ( #flag, #id, noshell::parser::Values::One ), );
-            pair.to_tokens(&mut items);
+            let atmost = parse_atmost_with_type(&arg.ty);
+            items.push(quote! { (#flag, #id, #atmost) });
         }
     }
 
-    Ok(quote! { &[ #items ] })
+    Ok(quote! { [ #(#items),* ] })
+}
+
+fn parse_atmost_with_type(ty: &Type) -> TokenStream {
+    match Ty::from_syn_ty(ty) {
+        Ty::Simple | Ty::Option | Ty::OptionOption => quote!(noshell::parser::AtMost::One),
+        Ty::Vec | Ty::OptionVec => quote!(noshell::parser::AtMost::Many),
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use syn::Field;
-
-    use crate::tests::utils::format_rust_token_stream;
-
-    use super::*;
-
-    #[test]
-    fn it_should_build_id_lookup_table_with_no_attrs() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote! {
-            value: u32
-        };
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        assert_eq!(0, attrs.len());
-
-        let meta = MetaArg::new(&field, attrs);
-        let lookup = build_arg_lookup_table(&[meta])?;
-
-        let expected = quote! { noshell::parser::ArgLookupTable::new(&[(Flag::Long("value"), "value", noshell::parser::Values::One)]) };
-        assert_eq!(expected.to_string(), lookup.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_id_lookup_table_with_one_default_long_flag() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote! {
-            #[arg(long)]
-            value: u32
-        };
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        assert_eq!(1, attrs.len());
-
-        let meta = MetaArg::new(&field, attrs);
-        let lookup = build_arg_lookup_table(&[meta])?;
-
-        let expected = quote! {
-            &[(noshell::parser::lexer::Flag::Long("value"), "value", noshell::parser::Values::One),]
-        };
-        assert_eq!(expected.to_string(), lookup.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_id_lookup_table_with_one_long_flag() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote! {
-            #[arg(long = "other")]
-            value: u32
-        };
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        assert_eq!(1, attrs.len());
-
-        let meta = MetaArg::new(&field, attrs);
-        let lookup = build_arg_lookup_table(&[meta])?;
-
-        let expected = quote! { [(noshell::parser::lexer::Flag::Long("other"), "value"),] };
-        assert_eq!(expected.to_string(), lookup.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_id_lookup_table_with_one_default_short_flag() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote! {
-            #[arg(short)]
-            value: u32
-        };
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        assert_eq!(1, attrs.len());
-
-        let meta = MetaArg::new(&field, attrs);
-        let lookup = build_arg_lookup_table(&[meta])?;
-
-        let expected = quote! { [(noshell::parser::lexer::Flag::Short('v'), "value"),] };
-        assert_eq!(expected.to_string(), lookup.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_id_lookup_table_with_one_short_flag() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote! {
-            #[arg(short = 'd')]
-            value: u32
-        };
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        assert_eq!(1, attrs.len());
-
-        let meta = MetaArg::new(&field, attrs);
-        let lookup = build_arg_lookup_table(&[meta])?;
-
-        let expected = quote! { [(noshell::parser::lexer::Flag::Short('d'), "value"),] };
-        assert_eq!(expected.to_string(), lookup.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_id_lookup_table_with_one_short_and_one_long_flags() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote! {
-            #[arg(short, long)]
-            value: u32
-        };
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        assert_eq!(2, attrs.len());
-
-        let meta = MetaArg::new(&field, attrs);
-        let lookup = build_arg_lookup_table(&[meta])?;
-
-        let expected = quote! { [
-            (noshell::parser::lexer::Flag::Short('v'), "value"),
-            (noshell::parser::lexer::Flag::Long("value"), "value"),
-        ] };
-        assert_eq!(expected.to_string(), lookup.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_parser_for_simple_type() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote!(value: u32);
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        let meta = MetaArg::new(&field, attrs);
-        let given = build_arg_parser(&meta, format_ident!("__args"))?;
-
-        let expected = quote!(
-            value: __args.try_get_one::<u32>("value")
-                .and_then(noshell::parser::utils::check_arg_is_missing)
-                .map(Option::unwrap)
-                .and_then(noshell::parser::utils::check_value_is_missing)
-                .map(Option::unwrap)?
-        );
-
-        assert_eq!(expected.to_string(), given.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_parser_for_option_type() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote!(value: Option<u32>);
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        let meta = MetaArg::new(&field, attrs);
-        let given = build_arg_parser(&meta, format_ident!("__args"))?;
-
-        let expected = quote!(
-            value: if __args.contains("value") {
-                Some(
-                    __args.try_get_one::<u32>("value")
-                        .map(Option::unwrap)
-                        .and_then(noshell::parser::utils::check_value_is_missing)
-                        .map(Option::unwrap)?
-                )
-            } else {
-                None
-            }
-        );
-
-        assert_eq!(expected.to_string(), given.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_parser_for_option_option_type() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote!(value: Option<Option<u32>>);
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        let meta = MetaArg::new(&field, attrs);
-        let given = build_arg_parser(&meta, format_ident!("__args"))?;
-
-        let expected = quote!(value:
-            if __args.contains("value") {
-                Some(
-                    __args.try_get_one::<u32>("value").map(Option::flatten)?
-                )
-            } else {
-                None
-            }
-        );
-
-        assert_eq!(expected.to_string(), given.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_parser_for_option_vec_type() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote!(value: Option<Vec<u32>>);
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        let meta = MetaArg::new(&field, attrs);
-        let given = build_arg_parser(&meta, format_ident!("__args"))?;
-
-        let expected = quote!(value:
-            if __args.contains("value") {
-                Some(
-                    __args.try_get_many::<_, u32>("value")
-                        .map(Option::unwrap)
-                        .and_then(noshell::parser::utils::check_vec_is_missing)?
-                )
-            } else {
-                None
-            }
-        );
-
-        assert_eq!(expected.to_string(), given.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_parser_for_vec_type() -> anyhow::Result<()> {
-        let field: Field = syn::parse_quote!(value: Vec<u32, 8>);
-
-        let attrs = Attr::parse_all(&field.attrs)?;
-        let meta = MetaArg::new(&field, attrs);
-        let given = build_arg_parser(&meta, format_ident!("__args"))?;
-
-        let expected = quote!(
-            value: __args.try_get_many::<_, u32>("value")
-                .and_then(noshell::parser::utils::check_arg_is_missing)
-                .map(Option::unwrap)
-                .and_then(noshell::parser::utils::check_vec_is_missing)?
-        );
-
-        assert_eq!(expected.to_string(), given.to_string());
-
-        Ok(())
-    }
-
-    #[test]
-    fn it_should_build_struct_derive() -> anyhow::Result<()> {
-        let derive: DeriveInput = syn::parse_quote! {
-            struct MyArgs {
-                value1: u32,
-                value2: u32,
-            }
-        };
-
-        let output = format_rust_token_stream(try_run(&derive)?);
-        insta::assert_snapshot!(output);
-
-        Ok(())
-    }
-}
+mod tests;

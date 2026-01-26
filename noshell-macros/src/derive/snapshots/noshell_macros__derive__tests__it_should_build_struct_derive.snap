@@ -1,0 +1,39 @@
+---
+source: noshell-macros/src/derive/tests.rs
+expression: output
+---
+impl MyArgs {
+    pub fn try_parse_from<'a>(input: &'a [&'a str]) -> Result<Self, noshell::Error> {
+        use noshell::parser::{ArgLookupTable, ParsedArgs};
+        static LOOKUP_TABLE: ArgLookupTable<'_> = ArgLookupTable::new(&[
+            (
+                noshell::parser::lexer::Flag::Long("value1"),
+                "value1",
+                noshell::parser::AtMost::One,
+            ),
+            (
+                noshell::parser::lexer::Flag::Long("value2"),
+                "value2",
+                noshell::parser::AtMost::One,
+            ),
+        ]);
+        let args = ParsedArgs::<'_, 32usize>::try_parse_from(input, &LOOKUP_TABLE)?;
+        Ok(MyArgs {
+            value1: args
+                .try_get_one::<u32>("value1")
+                .and_then(noshell::parser::utils::check_arg_is_missing)
+                .map(Option::unwrap)
+                .and_then(noshell::parser::utils::check_value_is_missing)
+                .map(Option::unwrap)?,
+            value2: args
+                .try_get_one::<u32>("value2")
+                .and_then(noshell::parser::utils::check_arg_is_missing)
+                .map(Option::unwrap)
+                .and_then(noshell::parser::utils::check_value_is_missing)
+                .map(Option::unwrap)?,
+        })
+    }
+    pub fn parse_from<'a>(iter: &'a [&'a str]) -> Self {
+        Self::try_parse_from(iter).expect("should parse arguments from iterator")
+    }
+}

@@ -1,0 +1,5 @@
+---
+source: noshell-macros/src/derive/tests.rs
+description: "input: `value : u32`"
+---
+[(noshell :: parser :: lexer :: Flag :: Long ("value") , "value" , noshell :: parser :: AtMost :: One)]
