@@ -63,7 +63,7 @@ async fn it_should_print_prompt() {
     let mut output = StringBuf::new(String::default());
 
     let stream = events::stream(&mut input);
-    let prompt = Prompt::new(["prompt>"].iter());
+    let prompt = Prompt::new("prompt>");
 
     pin_mut!(stream);
 
@@ -91,7 +91,7 @@ async fn it_should_read_line(#[context] ctx: Context, #[case] input: &str) {
     let mut output = StringBuf::new(String::default());
 
     let stream = events::stream(&mut input);
-    let prompt = Prompt::new(["prompt>"].iter());
+    let prompt = Prompt::new("prompt>");
 
     pin_mut!(stream);
 

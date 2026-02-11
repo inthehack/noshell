@@ -2,4 +2,4 @@
 source: noshell/src/cmdline/tests.rs
 description: "cmdline: \r"
 ---
-[1Eprompt>[1C
+[1Eprompt>

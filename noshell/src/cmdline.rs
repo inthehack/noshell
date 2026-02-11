@@ -1,7 +1,5 @@
 //! Line parsing.
 
-use core::fmt;
-
 use futures::{Stream, StreamExt, pin_mut};
 use heapless::{CapacityError, String};
 use noterm::cursor::{Home, MoveLeft, MoveRight, MoveToNextLine};
@@ -46,16 +44,14 @@ pub enum Error {
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// Read a line.
-pub async fn readline<OutputTy, EventsTy, ContentTy, const SIZE: usize>(
-    prompt: &Prompt<ContentTy>,
+pub async fn readline<OutputTy, EventsTy, const SIZE: usize>(
+    prompt: &Prompt<'_>,
     events: EventsTy,
     output: &mut OutputTy,
 ) -> Result<String<SIZE>>
 where
     OutputTy: io::blocking::Write,
     EventsTy: Stream<Item = io::Result<Event>>,
-    ContentTy: Iterator + Clone,
-    <ContentTy as Iterator>::Item: fmt::Display,
 {
     // Prepare the output of the line.
     let mut line: Line<SIZE> = Line::default();
@@ -101,15 +97,13 @@ impl<const SIZE: usize> Line<SIZE> {
     const _ASSERT_SIZE_IS_U16_CONVERTIBLE: () =
         assert!(SIZE <= u16::MAX as usize, "SIZE must be less than 65535");
 
-    fn on_key_event<ContentTy, WriterTy>(
+    fn on_key_event<WriterTy>(
         &mut self,
         event: KeyEvent,
-        prompt: &Prompt<ContentTy>,
+        prompt: &Prompt<'_>,
         output: &mut WriterTy,
     ) -> Result<Option<&str>>
     where
-        ContentTy: Iterator + Clone,
-        <ContentTy as Iterator>::Item: fmt::Display,
         WriterTy: io::blocking::Write,
     {
         let KeyEvent {
@@ -220,14 +214,12 @@ impl<const SIZE: usize> Line<SIZE> {
     }
 }
 
-fn on_ctrl_key_event<ContentTy, WriterTy>(
+fn on_ctrl_key_event<WriterTy>(
     key: KeyCode,
-    prompt: &Prompt<ContentTy>,
+    prompt: &Prompt<'_>,
     output: &mut WriterTy,
 ) -> Result<LineStatus>
 where
-    ContentTy: Iterator + Clone,
-    <ContentTy as Iterator>::Item: fmt::Display,
     WriterTy: io::blocking::Write,
 {
     let status = match key {

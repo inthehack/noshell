@@ -1,44 +1,39 @@
 //! Prompt.
 
-use core::fmt;
-
 use noterm::Queuable;
-use noterm::cursor::{MoveRight, MoveToNextLine};
+use noterm::cursor::MoveToNextLine;
 use noterm::style::Print;
 
 use crate::cmdline::Result;
 
 /// A Prompt is composed of several styled string parts.
-pub struct Prompt<ContentTy> {
-    parts: ContentTy,
+#[derive(Debug)]
+pub struct Prompt<'a> {
+    parts: &'a str,
 }
 
-impl<ContentTy> Prompt<ContentTy> {
+impl<'a> Prompt<'a> {
     /// Create a new prompt from contents.
-    pub fn new(parts: ContentTy) -> Self {
+    pub fn new(parts: &'a str) -> Self {
         Prompt { parts }
     }
 }
 
-impl<ContentTy> Prompt<ContentTy>
-where
-    ContentTy: Iterator + Clone,
-    <ContentTy as Iterator>::Item: fmt::Display,
-{
+impl Prompt<'_> {
     /// Reset the prompt and print it to the output.
     pub fn reset<OutputTy>(&self, output: &mut OutputTy) -> Result<()>
     where
         OutputTy: noterm::io::blocking::Write,
     {
-        let parts = self.parts.clone();
         output.queue(MoveToNextLine(1))?;
-
-        for part in parts {
-            output.queue(Print(part))?;
-        }
-
-        output.queue(MoveRight(1))?;
+        output.queue(Print(format_args!("{} ", self.parts)))?;
         output.flush()?;
         Ok(())
+    }
+}
+
+impl Default for Prompt<'_> {
+    fn default() -> Self {
+        Prompt::new("shell $")
     }
 }
