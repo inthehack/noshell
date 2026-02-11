@@ -12,21 +12,21 @@ use crate::cmdline::{Error, Result};
 
 /// Lex the command line and split it into words in a POSIX-compliant way.
 pub fn split<'a>(input: &'a str) -> impl Iterator<Item = Result<&'a str>> + 'a {
-    WordIterator::new(input)
+    Words::new(input)
 }
 
-struct WordIterator<'a> {
+struct Words<'a> {
     input: &'a str,
 }
 
-impl<'a> WordIterator<'a> {
+impl<'a> Words<'a> {
     /// Create a new iterator from the input string.
     fn new(input: &'a str) -> Self {
-        WordIterator { input }
+        Words { input }
     }
 }
 
-impl<'a> Iterator for WordIterator<'a> {
+impl<'a> Iterator for Words<'a> {
     type Item = Result<&'a str>;
 
     fn next(&mut self) -> Option<Self::Item> {
