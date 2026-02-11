@@ -456,9 +456,9 @@ dependencies = [
 
 [[package]]
 name = "noterm"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91141b2463d06c6990808057e31ada1c8e95c2a2202428c3c37b2f9b7ad2702b"
+checksum = "1b8229f733c428dcc064c50a52c8cb784378c33d1e346cd9fcf58bab04ec1a49"
 dependencies = [
  "bitflags 2.10.0",
  "futures",
