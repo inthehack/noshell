@@ -2,6 +2,7 @@
 //!
 //! This lexer is in charge of lexing the command line in a POSIX-compliant way.
 
+use itertools::Itertools;
 use nom::branch::alt;
 use nom::bytes::complete::{take_until, take_while};
 use nom::character::complete::char;
@@ -11,11 +12,13 @@ use nom::{IResult, Parser};
 use crate::cmdline::{Error, Result};
 
 /// Lex the command line and split it into words in a POSIX-compliant way.
-pub fn split<'a>(input: &'a str) -> impl Iterator<Item = Result<&'a str>> + 'a {
+pub fn split<'a>(input: &'a str) -> Words<'a> {
     Words::new(input)
 }
 
-struct Words<'a> {
+/// Successive words in the sense of POSIX input on a command line.
+#[derive(Clone, Debug)]
+pub struct Words<'a> {
     input: &'a str,
 }
 
@@ -26,27 +29,33 @@ impl<'a> Words<'a> {
     }
 }
 
-impl<'a> Iterator for Words<'a> {
-    type Item = Result<&'a str>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> Words<'a> {
+    /// Get the next word and consume the iterator.
+    pub fn advance(&mut self) -> Result<Option<&'a str>> {
         // Remove useless trailing whitespaces.
         self.input = trim_start_whitespaces(self.input);
 
-        // Check if the input is empty.
-        self.input.chars().next()?;
+        if self.input.is_empty() {
+            return Ok(None);
+        }
 
         // Parse the next word.
         match parse_single_word(self.input) {
             Ok((rest, word)) => {
                 self.input = rest;
-                Some(Ok(word))
+                Ok(Some(word))
             }
 
-            Err(nom::Err::Error(_)) => None,
-            Err(nom::Err::Incomplete(_)) => None,
-            Err(nom::Err::Failure(_)) => Some(Err(Error::Unknown)),
+            Err(nom::Err::Error(_)) => Ok(None),
+            Err(nom::Err::Incomplete(_)) => Ok(None),
+            Err(nom::Err::Failure(_)) => Err(Error::Unknown),
         }
+    }
+
+    /// Consume the iterator into a collection.
+    pub fn try_collect<OutputTy: FromIterator<&'a str>>(mut self) -> Result<OutputTy> {
+        let words = core::iter::from_fn(move || self.advance().transpose());
+        words.process_results(|iter| OutputTy::from_iter(iter))
     }
 }
 
@@ -119,7 +128,7 @@ mod tests {
         &["-f", "value1", "--flag2", "value2.1 value2.2"]
     )]
     fn it_should_parse_multiple_words(#[case] input: &str, #[case] expected: &[&str]) {
-        let words: Result<Vec<_>, _> = split(input).collect();
+        let words: Result<Vec<_>, _> = split(input).try_collect();
 
         assert_that!(words).is_ok().matches(|x| {
             x.iter().enumerate().fold(true, |state, (i, item)| {

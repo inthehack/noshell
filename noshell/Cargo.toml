@@ -27,6 +27,7 @@ noterm = { version = "0.2.0" }
 
 noshell-macros = { path = "../noshell-macros", version = "0.3.0" }
 noshell-parser = { path = "../noshell-parser", version = "0.3.0", optional = true }
+itertools = { version = "0.14.0", default-features = false }
 
 [dev-dependencies]
 insta = "1.46.0"
