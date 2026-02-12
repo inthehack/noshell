@@ -59,22 +59,18 @@ impl<'a> Words<'a> {
     }
 }
 
-fn is_whitespace(input: char) -> bool {
-    [' ', '\t', '\n'].contains(&input)
-}
-
 fn parse_single_word(input: &str) -> IResult<&str, &str> {
     alt((
         parse_in_between_single_quotes,
         parse_in_between_double_quotes,
-        take_while(|x| !is_whitespace(x)),
+        take_while(|x: char| !x.is_ascii_whitespace()),
     ))
     .parse_complete(input)
 }
 
 #[inline(always)]
 fn trim_start_whitespaces(input: &str) -> &str {
-    input.trim_start_matches(is_whitespace)
+    input.trim_start_matches(|x: char| x.is_ascii_whitespace())
 }
 
 fn parse_in_between_single_quotes(input: &str) -> IResult<&str, &str> {
