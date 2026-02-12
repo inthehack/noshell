@@ -82,7 +82,6 @@ fn parse_single_word(input: &str) -> IResult<&str, &str> {
     .parse_complete(input)
 }
 
-#[inline(always)]
 fn trim_start_whitespaces(input: &str) -> &str {
     input.trim_start_matches(|x: char| x.is_ascii_whitespace())
 }
