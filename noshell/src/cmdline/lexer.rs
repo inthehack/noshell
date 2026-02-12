@@ -10,7 +10,20 @@ use nom::combinator::cut;
 use nom::sequence::{preceded, terminated};
 use nom::{IResult, Parser};
 
-use crate::cmdline::{Error, Result};
+/// Errors from the lexer.
+#[derive(Debug, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum Error<'a> {
+    /// Invalid input, no word can be found.
+    #[error("invalid input")]
+    InvalidInput(&'a str),
+
+    /// Unknown error, for development only.
+    #[error("unknown error")]
+    Unknown,
+}
+
+/// Re-export of result type.
+pub type Result<'a, T, E = Error<'a>> = core::result::Result<T, E>;
 
 /// Lex the command line and split it into words in a POSIX-compliant way.
 pub fn split<'a>(input: &'a str) -> Words<'a> {
@@ -32,7 +45,7 @@ impl<'a> Words<'a> {
 
 impl<'a> Words<'a> {
     /// Get the next word and consume the iterator.
-    pub fn advance(&mut self) -> Result<Option<&'a str>> {
+    pub fn advance(&mut self) -> Result<'a, Option<&'a str>> {
         // Remove useless trailing whitespaces.
         self.input = trim_start_whitespaces(self.input);
 
@@ -48,13 +61,13 @@ impl<'a> Words<'a> {
             }
 
             Err(nom::Err::Error(_)) => Ok(None),
-            Err(nom::Err::Incomplete(_)) => Ok(None),
-            Err(nom::Err::Failure(_)) => Err(Error::Unknown),
+            Err(nom::Err::Incomplete(_)) => Err(Error::InvalidInput("unreachable")),
+            Err(nom::Err::Failure(err)) => Err(Error::InvalidInput(err.input)),
         }
     }
 
     /// Consume the iterator into a collection.
-    pub fn try_collect<OutputTy: FromIterator<&'a str>>(mut self) -> Result<OutputTy> {
+    pub fn try_collect<OutputTy: FromIterator<&'a str>>(mut self) -> Result<'a, OutputTy> {
         let words = core::iter::from_fn(move || self.advance().transpose());
         words.process_results(|iter| OutputTy::from_iter(iter))
     }
@@ -90,14 +103,12 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[case("")]
-    #[case("word")]
-    #[case("-f")]
-    #[case("--flag")]
-    fn it_should_parse_single_word(#[case] input: &str) {
+    #[case("", "")]
+    #[case("word", "word")]
+    fn it_should_parse_word(#[case] input: &str, #[case] expected: &str) {
         assert_that!(parse_single_word(input))
             .is_ok()
-            .matches(|(_, word)| input == *word);
+            .matches(|(_, word)| expected == *word);
     }
 
     #[rstest]
@@ -125,6 +136,14 @@ mod tests {
     }
 
     #[rstest]
+    #[case("\tword", &["word"])]
+    #[case("\rword", &["word"])]
+    #[case("\nword", &["word"])]
+    #[case("\r\nword", &["word"])]
+    #[case("\tword\t", &["word", "word"])]
+    #[case("\rword\rword", &["word", "word"])]
+    #[case("\nword\nword", &["word", "word"])]
+    #[case("\r\nword\r\nword", &["word", "word"])]
     #[case(
         "-f value1 --flag2 value2",
         &["-f", "value1", "--flag2", "value2"]
@@ -147,5 +166,16 @@ mod tests {
                 }
             })
         });
+    }
+
+    #[rstest]
+    #[case("word 'word word")]
+    #[case("word \"word word")]
+    fn it_should_fail_parse_invalid_multiple_words(#[case] input: &str) {
+        let words: Result<Vec<_>, _> = split(input).try_collect();
+
+        assert_that!(words)
+            .is_err()
+            .matches(|x| matches!(x, Error::InvalidInput(_)));
     }
 }
