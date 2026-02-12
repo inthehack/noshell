@@ -6,7 +6,8 @@ use itertools::Itertools;
 use nom::branch::alt;
 use nom::bytes::complete::{take_until, take_while};
 use nom::character::complete::char;
-use nom::sequence::delimited;
+use nom::combinator::cut;
+use nom::sequence::{preceded, terminated};
 use nom::{IResult, Parser};
 
 use crate::cmdline::{Error, Result};
@@ -74,11 +75,11 @@ fn trim_start_whitespaces(input: &str) -> &str {
 }
 
 fn parse_in_between_single_quotes(input: &str) -> IResult<&str, &str> {
-    delimited(char('\''), take_until("'"), char('\'')).parse_complete(input)
+    preceded(char('\''), cut(terminated(take_until("'"), char('\'')))).parse_complete(input)
 }
 
 fn parse_in_between_double_quotes(input: &str) -> IResult<&str, &str> {
-    delimited(char('"'), take_until("\""), char('"')).parse_complete(input)
+    preceded(char('"'), cut(terminated(take_until("\""), char('"')))).parse_complete(input)
 }
 
 #[cfg(test)]
@@ -104,7 +105,7 @@ mod tests {
     #[case("'word'")]
     #[case("\"\"")]
     #[case("\"word\"")]
-    fn it_should_parse_single_quoted_word(#[case] input: &str) {
+    fn it_should_parse_quoted_word(#[case] input: &str) {
         fn unquote(s: &str) -> &str {
             s.trim_matches('\'').trim_matches('"')
         }
@@ -112,6 +113,15 @@ mod tests {
         assert_that!(parse_single_word(input))
             .is_ok()
             .matches(|(_, word)| unquote(input) == *word);
+    }
+
+    #[rstest]
+    #[case("'word")]
+    #[case("'word\"")]
+    #[case("\"word")]
+    #[case("\"word'")]
+    fn it_should_fail_parse_invalid_quoted_word(#[case] input: &str) {
+        assert_that!(parse_single_word(input)).is_err();
     }
 
     #[rstest]
