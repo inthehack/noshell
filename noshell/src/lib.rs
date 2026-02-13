@@ -12,6 +12,8 @@ pub use noterm::events;
 pub mod console;
 pub mod line;
 
+pub use console::Console;
+
 #[cfg(test)]
 mod tests;
 
