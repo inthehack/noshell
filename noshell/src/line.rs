@@ -21,7 +21,7 @@ mod tests;
 extern crate std;
 
 /// Error.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum Error {
     /// Input/ouput error.
     #[error(transparent)]
@@ -50,8 +50,8 @@ pub async fn readline<OutputTy, EventsTy, const SIZE: usize>(
     output: &mut OutputTy,
 ) -> Result<String<SIZE>>
 where
-    OutputTy: io::blocking::Write,
     EventsTy: Stream<Item = io::Result<Event>>,
+    OutputTy: io::blocking::Write,
 {
     // Prepare the output of the line.
     let mut line: Line<SIZE> = Line::default();
