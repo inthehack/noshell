@@ -1,5 +1,5 @@
 ---
-source: noshell/src/cmdline/tests.rs
+source: noshell/src/line/tests.rs
 description: "cmdline: word0 word1\r"
 ---
 word0 word1

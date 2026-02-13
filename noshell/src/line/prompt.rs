@@ -4,7 +4,7 @@ use noterm::Queuable;
 use noterm::cursor::MoveToNextLine;
 use noterm::style::Print;
 
-use crate::cmdline::Result;
+use super::Result;
 
 /// A Prompt is composed of several styled string parts.
 #[derive(Debug)]

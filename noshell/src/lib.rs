@@ -9,7 +9,7 @@ pub use {macros::Parser, noshell_macros as macros, noshell_parser as parser};
 #[cfg(feature = "events")]
 pub use noterm::events;
 
-pub mod cmdline;
+pub mod line;
 
 #[cfg(test)]
 mod tests;
