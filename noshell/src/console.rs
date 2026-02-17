@@ -8,6 +8,7 @@ use noterm::events::Event;
 use noterm::terminal::{Clear, ClearType};
 use noterm::{Queuable, io};
 
+use crate::command::Command;
 use crate::line;
 use crate::line::Prompt;
 
@@ -26,6 +27,10 @@ pub enum Error {
     #[error("no space left")]
     NoSpaceLeft,
 
+    /// Command not found.
+    #[error("command not found")]
+    CommandNotFound,
+
     /// Unknown error, for development only.
     #[error("unknown error")]
     Unknown,
@@ -35,6 +40,7 @@ pub enum Error {
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// Capacity constants.
+const COMMAND_DYN_CAPACITY: usize = 32;
 const LINE_BUFFER_CAPACITY: usize = 256;
 const ARGV_BUFFER_CAPACITY: usize = 32;
 
@@ -43,6 +49,7 @@ pub struct Console<'a, EventsTy, WriterTy> {
     prompt: Prompt<'a>,
     events: EventsTy,
     writer: WriterTy,
+    commands: Vec<Command, COMMAND_DYN_CAPACITY>,
 }
 
 impl<'a, EventsTy, WriterTy> Console<'a, EventsTy, WriterTy>
@@ -56,7 +63,24 @@ where
             prompt: Prompt::new("shell $"),
             events,
             writer: output,
+            commands: Vec::new(),
         }
+    }
+
+    /// Add a command.
+    pub fn register(&mut self, command: Command) -> Result<&mut Self, Command> {
+        self.commands.push(command)?;
+        Ok(self)
+    }
+
+    /// Add a command, without check.
+    ///
+    /// # Safety
+    ///
+    /// This function may panic if the capacity is full.
+    pub unsafe fn register_unchecked(&mut self, command: Command) -> &mut Self {
+        unsafe { self.register(command).unwrap_unchecked() };
+        self
     }
 
     /// Clear the console.
@@ -108,13 +132,18 @@ where
 
     /// Execute the command.
     pub(crate) async fn execute(&mut self, argv: &[&str]) -> Result<()> {
-        handler(argv, &mut self.writer());
+        let Some(arg0) = argv.first().copied() else {
+            return Ok(());
+        };
+
+        let Some(command) = self.commands.iter().copied().find(|x| arg0 == x.name()) else {
+            noterm::println!(&mut self.writer, "error: command `{}` not found", arg0);
+            return Err(Error::CommandNotFound);
+        };
+
+        command.execute(&argv[1..], self.writer());
         Ok(())
     }
-}
-
-fn handler(argv: &[&str], writer: &mut ConsoleWriter<'_>) {
-    noterm::println!(writer, "execute `{:?}`!", argv);
 }
 
 /// Console writer.
