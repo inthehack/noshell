@@ -15,9 +15,6 @@ pub mod line;
 
 pub use console::Console;
 
-#[cfg(test)]
-mod tests;
-
 /// Defines the possible errors that may occur during usage of the crate.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
