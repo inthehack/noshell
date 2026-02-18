@@ -1,5 +1,7 @@
 //! Console.
 
+use core::cell::UnsafeCell;
+
 use futures::Stream;
 
 use heapless::{String, Vec};
@@ -61,24 +63,24 @@ const LINE_BUFFER_CAPACITY: usize = 256;
 const ARGV_BUFFER_CAPACITY: usize = 32;
 
 /// A console.
-pub struct Console<'a, EventsTy, WriterTy> {
+pub struct Console<'a, EventsTy, OutputTy> {
     prompt: Prompt<'a>,
-    events: EventsTy,
-    writer: WriterTy,
+    events: UnsafeCell<&'a mut EventsTy>,
+    output: UnsafeCell<&'a mut OutputTy>,
     commands: Vec<Command, COMMAND_DYN_CAPACITY>,
 }
 
-impl<'a, EventsTy, WriterTy> Console<'a, EventsTy, WriterTy>
+impl<'a, EventsTy, OutputTy> Console<'a, EventsTy, OutputTy>
 where
     EventsTy: Stream<Item = io::Result<Event>> + Unpin,
-    WriterTy: io::blocking::Write,
+    OutputTy: io::blocking::Write,
 {
     /// Create a new console.
-    pub fn new(events: EventsTy, output: WriterTy) -> Self {
+    pub fn new(events: &'a mut EventsTy, output: &'a mut OutputTy) -> Self {
         Console {
             prompt: Prompt::new("shell $"),
-            events,
-            writer: output,
+            events: UnsafeCell::new(events),
+            output: UnsafeCell::new(output),
             commands: Vec::new(),
         }
     }
@@ -100,22 +102,27 @@ where
     }
 
     /// Clear the console.
-    pub fn clear(&mut self) -> Result<()> {
-        self.writer.queue(Clear(ClearType::All))?;
-        self.writer.queue(Home)?;
-        self.writer.flush()?;
+    pub fn clear(&self) -> Result<()> {
+        let output = unsafe { &mut **self.output.get() };
+        output.queue(Clear(ClearType::All))?;
+        output.queue(Home)?;
+        output.flush()?;
         Ok(())
     }
 
     /// Get output writer.
-    pub fn writer<'b>(&'b mut self) -> ConsoleWriter<'b> {
-        ConsoleWriter(&mut self.writer)
+    pub fn writer<'b>(&'b self) -> ConsoleWriter<'b> {
+        ConsoleWriter(unsafe { &mut **self.output.get() })
     }
 
     /// Process user input.
     pub async fn process(&mut self) -> Result<()> {
         let line: String<LINE_BUFFER_CAPACITY> =
-            match line::readline(&self.prompt, &mut self.events, &mut self.writer).await {
+            match line::readline(&self.prompt, unsafe { &mut **self.events.get() }, unsafe {
+                &mut **self.output.get()
+            })
+            .await
+            {
                 Ok(line) => line,
 
                 Err(line::Error::Io(err)) => return Err(Error::Io(err)),
@@ -124,7 +131,7 @@ where
                 Err(line::Error::NoSpaceLeft) => return Err(Error::NoSpaceLeft),
             };
 
-        noterm::print!(&mut self.writer, "\r\n");
+        noterm::print!(unsafe { &mut **self.output.get() }, "\r\n");
 
         // Skip comment.
         if line.starts_with('#') {
@@ -145,7 +152,11 @@ where
         };
 
         let Some(command) = self.commands.iter().copied().find(|x| arg0 == x.name()) else {
-            noterm::println!(&mut self.writer, "error: command `{}` not found", arg0);
+            noterm::println!(
+                unsafe { &mut **self.output.get() },
+                "error: command `{}` not found",
+                arg0
+            );
             return Err(Error::CommandNotFound);
         };
 
