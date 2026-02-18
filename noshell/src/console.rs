@@ -119,6 +119,7 @@ where
                 Ok(line) => line,
 
                 Err(line::Error::Io(err)) => return Err(Error::Io(err)),
+                Err(line::Error::Cancelled) => return Err(Error::Cancelled),
                 Err(line::Error::NoMoreEvents) => return Err(Error::Terminated),
                 Err(line::Error::NoSpaceLeft) => return Err(Error::NoSpaceLeft),
             };

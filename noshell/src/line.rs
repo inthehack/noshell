@@ -23,9 +23,9 @@ extern crate std;
 /// Error.
 #[derive(Debug, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum Error {
-    /// Input/ouput error.
-    #[error(transparent)]
-    Io(#[from] noterm::io::Error),
+    /// Current line cancelled by user.
+    #[error("user input cancelled")]
+    Cancelled,
 
     /// No more events from the stream.
     #[error("no more events")]
@@ -34,6 +34,10 @@ pub enum Error {
     /// No space left in line buffer.
     #[error("no space left")]
     NoSpaceLeft,
+
+    /// Input/ouput error.
+    #[error(transparent)]
+    Io(#[from] noterm::io::Error),
 }
 
 /// Re-export result type.
@@ -77,16 +81,17 @@ where
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-enum LineStatus {
-    Done,
-    Pending,
+enum LineEvent {
+    None,
+    Cancelled,
+    Updated,
 }
 
 #[derive(Debug, Default)]
 struct Line<const SIZE: usize = 256> {
-    escaped: bool,
     buffer: String<SIZE>,
     cursor: usize,
+    escaped: bool,
 }
 
 impl<const SIZE: usize> Line<SIZE> {
@@ -111,8 +116,9 @@ impl<const SIZE: usize> Line<SIZE> {
         let is_ctrl_modified = modifiers.contains(KeyModifiers::CONTROL);
         let is_shift_modified = modifiers.contains(KeyModifiers::SHIFT);
 
-        if is_ctrl_modified && on_ctrl_key_event(code, prompt, output)? == LineStatus::Done {
-            return Ok(None);
+        if is_ctrl_modified && self.on_ctrl_key_event(code, prompt, output)? == LineEvent::Cancelled
+        {
+            return Err(Error::Cancelled);
         }
 
         if KeyCode::Enter == code && !self.escaped {
@@ -208,27 +214,31 @@ impl<const SIZE: usize> Line<SIZE> {
 
         Ok(None)
     }
-}
 
-fn on_ctrl_key_event<WriterTy>(
-    key: KeyCode,
-    prompt: &Prompt<'_>,
-    output: &mut WriterTy,
-) -> Result<LineStatus>
-where
-    WriterTy: io::blocking::Write,
-{
-    let status = match key {
-        KeyCode::Char('l') => {
-            output.queue(Clear(ClearType::All))?.queue(Home)?.flush()?;
-            prompt.reset(output)?;
-            LineStatus::Done
-        }
+    fn on_ctrl_key_event<WriterTy>(
+        &mut self,
+        key: KeyCode,
+        prompt: &Prompt<'_>,
+        output: &mut WriterTy,
+    ) -> Result<LineEvent>
+    where
+        WriterTy: io::blocking::Write,
+    {
+        let status = match key {
+            KeyCode::Char('c') => LineEvent::Cancelled,
 
-        _ => LineStatus::Pending,
-    };
+            KeyCode::Char('l') => {
+                output.queue(Clear(ClearType::All))?.queue(Home)?.flush()?;
+                prompt.reset(output)?;
+                output.queue(Print(self.buffer.as_str()))?.flush()?;
+                LineEvent::Updated
+            }
 
-    Ok(status)
+            _ => LineEvent::None,
+        };
+
+        Ok(status)
+    }
 }
 
 fn unescape<const SIZE: usize>(input: &str) -> heapless::String<SIZE> {
