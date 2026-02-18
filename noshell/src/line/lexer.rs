@@ -17,12 +17,8 @@ mod tests;
 #[derive(Debug, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum Error<'a> {
     /// Invalid input, no word can be found.
-    #[error("invalid input")]
-    InvalidInput(&'a str),
-
-    /// Unknown error, for development only.
-    #[error("unknown error")]
-    Unknown,
+    #[error("user input unexpected `{0}`")]
+    Unexpected(&'a str),
 }
 
 /// Re-export of result type.
@@ -64,8 +60,8 @@ impl<'a> Words<'a> {
             }
 
             Err(nom::Err::Error(_)) => Ok(None),
-            Err(nom::Err::Incomplete(_)) => Err(Error::InvalidInput("unreachable")),
-            Err(nom::Err::Failure(err)) => Err(Error::InvalidInput(err.input)),
+            Err(nom::Err::Incomplete(_)) => Err(Error::Unexpected("unreachable")),
+            Err(nom::Err::Failure(err)) => Err(Error::Unexpected(err.input)),
         }
     }
 

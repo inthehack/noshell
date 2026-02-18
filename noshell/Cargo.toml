@@ -23,7 +23,7 @@ heapless = { workspace = true }
 nom = { workspace = true }
 thiserror = { workspace = true }
 
-noterm = { version = "^0.2.0" }
+noterm = { version = "^0.2.3" }
 
 noshell-macros = { path = "../noshell-macros", version = "0.3.0" }
 noshell-parser = { path = "../noshell-parser", version = "0.3.0", optional = true }

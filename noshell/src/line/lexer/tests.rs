@@ -1,4 +1,3 @@
-
 use rstest::rstest;
 use speculoos::prelude::*;
 
@@ -78,5 +77,5 @@ fn it_should_fail_parse_invalid_multiple_words(#[case] input: &str) {
 
     assert_that!(words)
         .is_err()
-        .matches(|x| matches!(x, Error::InvalidInput(_)));
+        .matches(|x| matches!(x, Error::Unexpected(_)));
 }

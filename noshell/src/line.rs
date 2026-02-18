@@ -34,10 +34,6 @@ pub enum Error {
     /// No space left in line buffer.
     #[error("no space left")]
     NoSpaceLeft,
-
-    /// Unknown error.
-    #[error("unknown error")]
-    Unknown,
 }
 
 /// Re-export result type.

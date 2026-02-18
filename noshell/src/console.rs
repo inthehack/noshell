@@ -15,29 +15,45 @@ use crate::line::Prompt;
 /// Error.
 #[derive(Debug, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum Error {
-    /// Error from io.
-    #[error(transparent)]
-    Io(#[from] io::Error),
+    /// Current command line is cancelled by the user.
+    #[error("command line cancelled")]
+    Cancelled,
 
     /// Console had been terminated by user.
-    #[error("terminated")]
+    #[error("console terminated")]
     Terminated,
 
-    /// No space left in internal buffers.
-    #[error("no space left")]
-    NoSpaceLeft,
+    /// Invalid
+    #[error("user input unexpected")]
+    Unexpected,
 
     /// Command not found.
     #[error("command not found")]
     CommandNotFound,
 
-    /// Unknown error, for development only.
-    #[error("unknown error")]
-    Unknown,
+    /// No space left in internal buffers.
+    #[error("no space left")]
+    NoSpaceLeft,
+
+    /// Other error.
+    #[error("other")]
+    Other,
+
+    /// Error from io.
+    #[error(transparent)]
+    Io(#[from] io::Error),
 }
 
 /// Re-export of result type.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
+
+impl From<line::lexer::Error<'_>> for Error {
+    fn from(value: line::lexer::Error<'_>) -> Self {
+        match value {
+            line::lexer::Error::Unexpected(_) => Error::Unexpected,
+        }
+    }
+}
 
 /// Capacity constants.
 const COMMAND_DYN_CAPACITY: usize = 32;
@@ -105,7 +121,6 @@ where
                 Err(line::Error::Io(err)) => return Err(Error::Io(err)),
                 Err(line::Error::NoMoreEvents) => return Err(Error::Terminated),
                 Err(line::Error::NoSpaceLeft) => return Err(Error::NoSpaceLeft),
-                Err(line::Error::Unknown) => return Err(Error::Unknown),
             };
 
         noterm::print!(&mut self.writer, "\r\n");
@@ -116,15 +131,7 @@ where
         }
 
         // Prepare arguments.
-        let argv: Vec<_, ARGV_BUFFER_CAPACITY> = match line::lexer::split(&line).try_collect() {
-            Ok(argv) => argv,
-
-            Err(line::lexer::Error::InvalidInput(failed)) => {
-                noterm::println!(&mut self.writer, "error: unexpected token `{}`", failed);
-                return Ok(());
-            }
-            Err(line::lexer::Error::Unknown) => return Err(Error::Unknown),
-        };
+        let argv: Vec<_, ARGV_BUFFER_CAPACITY> = line::lexer::split(&line).try_collect()?;
 
         self.execute(&argv).await?;
         Ok(())
