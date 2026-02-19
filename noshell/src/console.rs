@@ -148,7 +148,14 @@ where
         }
 
         // Prepare arguments.
-        let argv: Vec<_, ARGV_BUFFER_CAPACITY> = line::lexer::split(&line).try_collect()?;
+        let argv: Vec<_, ARGV_BUFFER_CAPACITY> = match line::lexer::split(&line).try_collect() {
+            Ok(argv) => argv,
+
+            Err(line::lexer::Error::Unexpected(tokens)) => {
+                noterm::println!(output, "unexpected tokens `{}`", tokens);
+                return Err(Error::Cancelled);
+            }
+        };
 
         self.execute(&argv).await?;
         Ok(())
