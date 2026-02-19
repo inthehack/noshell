@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/inthehack/noshell/compare/v0.3.0...v0.4.0) - 2026-02-19
+
+### Added
+
+- display error message on unexpected tokens
+- refine error handling and enumeration
+- make console I/O internally mutable
+- clearer handling of error in console
+- better segmentation of error in console
+- add command handler in console
+- expose console as top-level type
+- expose console writer as erased type
+- add console basic implementation
+- make line error comparable
+- capture an error when input is invalid
+- [**breaking**] return error in case of words splitting fails
+- [**breaking**] simplify prompt api
+
+### Fixed
+
+- prevent incorrect backtracking in quoted-string parsers
+
+### Other
+
+- fix missing version in local dependencies
+- clean up dependencies
+- enable integration tests only if required feature is set
+- update version constraint on noterm dependency
+- update noterm dependency
+- [**breaking**] change cmdline module name to line
+- move tests to independent file
+- remove inlining of function
+- use whitespace check from core lib
+- update noterm dependency
+- rename word iterator
+
 ## [0.3.0](https://github.com/inthehack/noshell/compare/v0.2.0...v0.3.0) - 2026-01-26
 
 ### Added
