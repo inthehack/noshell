@@ -24,6 +24,12 @@ jobs:
       - &install-rust
         name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - &config-git-remotes
+        name: Configure noterm remote using https instead of ssh
+        run: |
+          git config --global --add \
+              url."https://${{ secrets.RELEASE_PLZ_TOKEN }}@github.com/inthehack/noterm".insteadOf \
+              "ssh://git@github.com/inthehack/noterm"
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
@@ -44,6 +50,7 @@ jobs:
     steps:
       - *checkout
       - *install-rust
+      - *config-git-remotes
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
