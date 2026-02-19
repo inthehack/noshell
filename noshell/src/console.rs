@@ -29,10 +29,6 @@ pub enum Error {
     #[error("user input unexpected")]
     Unexpected,
 
-    /// Command not found.
-    #[error("command not found")]
-    CommandNotFound,
-
     /// No space left in internal buffers.
     #[error("no space left")]
     NoSpaceLeft,
@@ -53,6 +49,17 @@ impl From<line::lexer::Error<'_>> for Error {
     fn from(value: line::lexer::Error<'_>) -> Self {
         match value {
             line::lexer::Error::Unexpected(_) => Error::Unexpected,
+        }
+    }
+}
+
+impl From<line::Error> for Error {
+    fn from(value: line::Error) -> Self {
+        match value {
+            line::Error::Io(err) => Error::Io(err),
+            line::Error::Cancelled => Error::Cancelled,
+            line::Error::NoMoreEvents => Error::Terminated,
+            line::Error::NoSpaceLeft => Error::NoSpaceLeft,
         }
     }
 }
@@ -117,21 +124,23 @@ where
 
     /// Process user input.
     pub async fn process(&mut self) -> Result<()> {
+        let stream = unsafe { &mut **self.events.get() };
+        let output = unsafe { &mut **self.output.get() };
+
         let line: String<LINE_BUFFER_CAPACITY> =
-            match line::readline(&self.prompt, unsafe { &mut **self.events.get() }, unsafe {
-                &mut **self.output.get()
-            })
-            .await
-            {
+            match line::readline(&self.prompt, stream, output).await {
                 Ok(line) => line,
 
                 Err(line::Error::Io(err)) => return Err(Error::Io(err)),
-                Err(line::Error::Cancelled) => return Err(Error::Cancelled),
+                Err(line::Error::Cancelled) => {
+                    noterm::print!(output, "\r\n");
+                    return Err(Error::Cancelled);
+                }
                 Err(line::Error::NoMoreEvents) => return Err(Error::Terminated),
                 Err(line::Error::NoSpaceLeft) => return Err(Error::NoSpaceLeft),
             };
 
-        noterm::print!(unsafe { &mut **self.output.get() }, "\r\n");
+        noterm::print!(output, "\r\n");
 
         // Skip comment.
         if line.starts_with('#') {
@@ -152,12 +161,9 @@ where
         };
 
         let Some(command) = self.commands.iter().copied().find(|x| arg0 == x.name()) else {
-            noterm::println!(
-                unsafe { &mut **self.output.get() },
-                "error: command `{}` not found",
-                arg0
-            );
-            return Err(Error::CommandNotFound);
+            let output = unsafe { &mut **self.output.get() };
+            noterm::println!(output, "error: command `{}` not found", arg0);
+            return Err(Error::Cancelled);
         };
 
         command.execute(&argv[1..], self.writer());

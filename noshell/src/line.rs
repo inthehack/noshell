@@ -67,14 +67,14 @@ where
             Some(Ok(event)) => match event {
                 Event::Key(key_event) => {
                     if let Some(contents) = line.on_key_event(key_event, prompt, output)? {
-                        return Ok(unescape::<SIZE>(contents));
+                        return Ok(contents);
                     };
                 }
                 Event::Cursor(_) => {}
                 Event::Screen(_) => {}
             },
 
-            Some(Err(err)) => return Err(Error::from(err)),
+            Some(Err(err)) => return Err(err.into()),
             None => return Err(Error::NoMoreEvents),
         }
     }
@@ -103,7 +103,7 @@ impl<const SIZE: usize> Line<SIZE> {
         event: KeyEvent,
         prompt: &Prompt<'_>,
         output: &mut WriterTy,
-    ) -> Result<Option<&str>>
+    ) -> Result<Option<String<SIZE>>>
     where
         WriterTy: io::blocking::Write,
     {
@@ -116,13 +116,16 @@ impl<const SIZE: usize> Line<SIZE> {
         let is_ctrl_modified = modifiers.contains(KeyModifiers::CONTROL);
         let is_shift_modified = modifiers.contains(KeyModifiers::SHIFT);
 
-        if is_ctrl_modified && self.on_ctrl_key_event(code, prompt, output)? == LineEvent::Cancelled
-        {
-            return Err(Error::Cancelled);
+        if is_ctrl_modified {
+            match self.on_ctrl_key_event(code, prompt, output)? {
+                LineEvent::None => {}
+                LineEvent::Updated => return Ok(None),
+                LineEvent::Cancelled => return Err(Error::Cancelled),
+            }
         }
 
         if KeyCode::Enter == code && !self.escaped {
-            return Ok(Some(self.buffer.as_str()));
+            return Ok(Some(unescape::<SIZE>(&self.buffer)));
         }
 
         if KeyCode::Enter == code && self.escaped {
