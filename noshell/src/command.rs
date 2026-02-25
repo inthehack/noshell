@@ -1,9 +1,12 @@
 //! Command.
 
+use core::pin::Pin;
+use core::task::{Context, Poll};
+
 use crate::console::ConsoleWriter;
 
 /// Handler type.
-pub type HandlerFn = fn(&[&str], &mut ConsoleWriter<'_>);
+pub type HandlerFn = for<'a> fn(&'a [&'a str], &mut ConsoleWriter<'a>) -> UnitFuture<'a>;
 
 /// Command.
 #[derive(Clone, Copy, Debug)]
@@ -24,7 +27,27 @@ impl Command {
     }
 
     /// Execute the command.
-    pub fn execute(&self, argv: &[&str], mut writer: ConsoleWriter<'_>) {
-        (self.handler)(argv, &mut writer);
+    pub async fn execute<'a>(&self, argv: &'a [&'a str], mut writer: ConsoleWriter<'a>) {
+        (self.handler)(argv, &mut writer).await;
+    }
+}
+
+/// Command future.
+pub struct UnitFuture<'a> {
+    inner: &'a mut (dyn Future<Output = ()> + Unpin),
+}
+
+impl<'a> UnitFuture<'a> {
+    /// Create a new command future.
+    pub fn new(fut: &'a mut (impl Future<Output = ()> + Unpin)) -> Self {
+        UnitFuture { inner: fut }
+    }
+}
+
+impl Future for UnitFuture<'_> {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut *self.inner).poll(cx)
     }
 }

@@ -173,7 +173,7 @@ where
             return Err(Error::Cancelled);
         };
 
-        command.execute(&argv[1..], self.writer());
+        command.execute(&argv[1..], self.writer()).await;
         Ok(())
     }
 }
